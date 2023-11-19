@@ -95,7 +95,7 @@ func (d *DockerClsuter) Provision(ctx context.Context) error {
 		NetworkName: networkName,
 		ClusterName: d.config.ClusterName,
 		ConsulAddr:  fmt.Sprintf("%s:8500", consul.Ip),
-		VaultAddr:   fmt.Sprintf("%s:8200", vault.Container.Ip),
+		VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Container.Ip),
 		VaultToken:  vault.RootToken,
 		Id:          0,
 	})
@@ -112,7 +112,7 @@ func (d *DockerClsuter) Provision(ctx context.Context) error {
 		NetworkName: networkName,
 		ClusterName: d.config.ClusterName,
 		ConsulAddr:  fmt.Sprintf("%s:8500", consul.Ip),
-		VaultAddr:   fmt.Sprintf("%s:8200", vault.Container.Ip),
+		VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Container.Ip),
 		VaultToken:  vault.RootToken,
 		Id:          len(d.nomadWorkers),
 	})
@@ -136,14 +136,22 @@ func (d *DockerClsuter) Destroy(ctx context.Context) error {
 		_ = d.cli.RemoveContainer(ctx, w.Id)
 	}
 
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed nomad workers.")
+
 	_ = d.cli.StopContainer(ctx, d.nomadServer.Id)
 	_ = d.cli.RemoveContainer(ctx, d.nomadServer.Id)
+
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed nomad server.")
 
 	_ = d.cli.StopContainer(ctx, d.vault.Container.Id)
 	_ = d.cli.RemoveContainer(ctx, d.vault.Container.Id)
 
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed vault.")
+
 	_ = d.cli.StopContainer(ctx, d.consul.Id)
 	_ = d.cli.RemoveContainer(ctx, d.consul.Id)
+
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed consul.")
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("cluster destroyed.")
 

@@ -26,6 +26,7 @@ func NewClusterCommand() *cobra.Command {
 
 			if err != nil {
 				log.WithError(err).Error("unable to connect docker")
+				return
 			}
 
 			ctl, err := cluster.NewDockerCluster(client, cluster.ClusterConfig{
@@ -34,13 +35,20 @@ func NewClusterCommand() *cobra.Command {
 
 			if err != nil {
 				log.WithError(err).Error("unable to create cluster")
+				return
 			}
 
-			ctl.Provision(cmd.Context())
+			if err = ctl.Provision(cmd.Context()); err != nil {
+				log.WithError(err).Error("unable to provision cluster")
+				return
+			}
 
 			state := cluster.CreateState(ctl.(*cluster.DockerClsuter))
 
-			cluster.WriteState(statePath, state)
+			if err = cluster.WriteState(statePath, state); err != nil {
+				log.WithError(err).Error("unable to save state")
+				return
+			}
 		},
 	}
 
@@ -51,6 +59,7 @@ func NewClusterCommand() *cobra.Command {
 
 			if err != nil {
 				log.WithError(err).Error("unable to connect docker")
+				return
 			}
 
 			ctl, err := cluster.NewDockerCluster(client, cluster.ClusterConfig{
@@ -59,15 +68,25 @@ func NewClusterCommand() *cobra.Command {
 
 			if err != nil {
 				log.WithError(err).Error("unable to create cluster")
+				return
 			}
 
 			state, err := cluster.ReadState(statePath)
 
 			if err != nil {
-				log.WithError(err).Error("unable to read state")
+				log.Error("cluster not found")
+				return
 			}
 
-			cluster.LoadState(ctl.(*cluster.DockerClsuter), *state)
+			if state == nil {
+				log.Error("cluster not found")
+				return
+			}
+
+			if err = cluster.LoadState(ctl.(*cluster.DockerClsuter), state); err != nil {
+				log.WithError(err).Error("unable to load state")
+				return
+			}
 
 			ctl.Destroy(cmd.Context())
 		},

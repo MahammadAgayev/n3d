@@ -1,12 +1,18 @@
 package main
 
-import "n3d/cmd"
+import (
+	"n3d/cmd"
+	"os"
+)
 
 type ConsulAcl struct {
 	SecretID string `json:"SecretID"`
 }
 
 func main() {
+	//create data folder
+	os.Mkdir(".n3d", 0666)
+
 	cmd.Execute()
 }
 

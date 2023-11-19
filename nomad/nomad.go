@@ -39,7 +39,7 @@ func NewNomadServer(ctx context.Context, cli containers.ContainerClient, config 
 
 		vault {
 			enabled = true
-			address = "%s:8200"
+			address =  "%s"
 			token   =  "%s"
 		}
 	    `
@@ -62,7 +62,7 @@ func NewNomadServer(ctx context.Context, cli containers.ContainerClient, config 
 
 	log.WithContext(ctx).WithFields(log.Fields{
 		"name": ctn.Name,
-	}).Info("started nomad server")
+	}).Trace("started nomad server")
 
 	return ctn, nil
 }
@@ -79,8 +79,8 @@ func NewNomadWorker(ctx context.Context, cli containers.ContainerClient, config 
 	  }	  
 	  vault {
 		enabled = true
-		address = "%s:8200"
-		token   =  "%s"
+		address = "%s"
+		token   = "%s"
 	  }	  
 	`
 	nomadConfig = fmt.Sprintf(nomadConfig, config.ConsulAddr, config.VaultAddr, config.VaultToken)

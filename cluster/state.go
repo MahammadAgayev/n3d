@@ -29,7 +29,7 @@ func CreateState(c *DockerClsuter) *clusterState {
 	return clusterState
 }
 
-func LoadState(cluster *DockerClsuter, state clusterState) error {
+func LoadState(cluster *DockerClsuter, state *clusterState) error {
 	cluster.config = ClusterConfig{
 		ClusterName: state.ClusterName,
 	}
@@ -43,7 +43,7 @@ func LoadState(cluster *DockerClsuter, state clusterState) error {
 	return nil
 }
 
-func ReadState(path string) (state *clusterState, err error) {
+func ReadState(path string) (*clusterState, error) {
 	reader, err := os.Open(path)
 
 	if err != nil {
@@ -52,15 +52,17 @@ func ReadState(path string) (state *clusterState, err error) {
 
 	defer reader.Close()
 
+	var state clusterState
+
 	decoder := json.NewDecoder(reader)
 
-	decoder.Decode(state)
+	decoder.Decode(&state)
 
-	return state, nil
+	return &state, nil
 }
 
 func WriteState(path string, state *clusterState) error {
-	writer, err := os.Open(path)
+	writer, err := os.Create(path)
 
 	if err != nil {
 		return err

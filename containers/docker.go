@@ -67,6 +67,20 @@ func NewDockerClient() (ContainerClient, error) {
 }
 
 func (d *DockerClient) CreateNetwork(ctx context.Context, name string) (ContainerNetwork, error) {
+	networks, err := d.cli.NetworkList(ctx, types.NetworkListOptions{})
+
+	if err != nil {
+		return ContainerNetwork{}, err
+	}
+
+	for _, v := range networks {
+		if v.Name == name {
+			return ContainerNetwork{
+				Id: v.ID,
+			}, nil
+		}
+	}
+
 	res, err := d.cli.NetworkCreate(ctx, name, types.NetworkCreate{
 		CheckDuplicate: true,
 	})
