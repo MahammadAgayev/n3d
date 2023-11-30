@@ -1,3 +1,6 @@
+## Note
+The repo still in initial development and may not work on occasionally
+
 ## N3D
 This is the tool for local nomad development
 
@@ -14,3 +17,4 @@ n3d cluster delete my-test-cluster
 ### Next features
 - Persistence needs to be implemented. 
 - Support for multiple clusters (Load balancing for UIs and tools)
+
