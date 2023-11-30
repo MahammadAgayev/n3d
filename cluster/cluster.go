@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"n3d/constants"
 	"n3d/consul"
 	"n3d/containers"
 	"n3d/nomad"
@@ -23,44 +24,35 @@ type ClusterConfig struct {
 	ClusterName string
 }
 
-type Cluster interface {
-	Provision(ctx context.Context) error
-	Destroy(ctx context.Context) error
-	// Resume() error
-	// Stop() error
-}
-
-type DockerClsuter struct {
+type Cluster struct {
 	config ClusterConfig
-	cli    containers.ContainerClient
+	cli    containers.Runtime
 
-	network      *containers.ContainerNetwork
-	nomadServer  *containers.Container
-	nomadWorkers []containers.Container
-	consul       *containers.Container
-	vault        *vault.VaultContainer
+	network      *containers.NodeNetwork
+	NomadServer  *containers.Node
+	NomadClients []*containers.Node
+	Consul       *containers.Node
+	Vault        *vault.VaultNode
 }
 
-func NewDockerCluster(cli containers.ContainerClient, config ClusterConfig) (Cluster, error) {
-	return &DockerClsuter{
-		cli:    cli,
-		config: config,
-	}, nil
-}
+// func NewDockerCluster(cli containers.ContainerClient, config ClusterConfig, db db.Db) (Cluster, error) {
+// 	return &DockerClsuter{
+// 		cli:    cli,
+// 		config: config,
+// 	}, nil
+// }
 
-func (d *DockerClsuter) Provision(ctx context.Context) error {
-	networkName := d.config.ClusterName + "-net"
+func ClusterCreate(ctx context.Context, config ClusterConfig, runtime containers.Runtime) error {
+	networkName := config.ClusterName + "-net"
 
-	network, err := d.cli.CreateNetwork(ctx, networkName)
+	_, err := runtime.CreateNetwork(ctx, networkName)
 
 	if err != nil {
 		return err
 	}
 
-	d.network = &network
-
-	consul, err := consul.NewConsulServer(ctx, d.cli, consul.ConsulConfiguration{
-		ClusterName: d.config.ClusterName,
+	consul, err := consul.NewConsulServer(ctx, runtime, consul.ConsulConfiguration{
+		ClusterName: config.ClusterName,
 		NetworkName: networkName,
 		Id:          0,
 	})
@@ -69,68 +61,62 @@ func (d *DockerClsuter) Provision(ctx context.Context) error {
 		return errors.Join(err, ErrorProvisionConsul)
 	}
 
-	d.consul = consul
 	log.WithContext(ctx).WithField("Name", consul.Name).Info("consul started.")
 
-	vault, err := vault.NewVault(ctx, d.cli, vault.VaultConfiguration{
-		ClusterName: d.config.ClusterName,
+	vault, err := vault.NewVault(ctx, runtime, vault.VaultConfiguration{
+		ClusterName: config.ClusterName,
 		ConsulAddr:  consul.Ip,
 		Id:          0,
 		NetworkName: networkName,
 	})
 
-	d.vault = vault
-
-	log.WithContext(ctx).WithFields(log.Fields{
-		"UnsealKey": vault.UnsealKey,
-		"RootToken": vault.RootToken,
-		"Name":      vault.Container.Name,
-	}).Info("vault started.")
-
 	if err != nil {
 		return errors.Join(err, ErrorProvisionVault)
 	}
 
-	nomadServer, err := nomad.NewNomadServer(ctx, d.cli, nomad.NomadConfiguration{
+	log.WithContext(ctx).WithFields(log.Fields{
+		"UnsealKey": vault.UnsealKey,
+		"RootToken": vault.RootToken,
+		"Name":      vault.Node.Name,
+	}).Info("vault started.")
+
+	nomadServer, err := nomad.NewNomadServer(ctx, runtime, nomad.NomadConfiguration{
 		NetworkName: networkName,
-		ClusterName: d.config.ClusterName,
+		ClusterName: config.ClusterName,
 		ConsulAddr:  fmt.Sprintf("%s:8500", consul.Ip),
-		VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Container.Ip),
+		VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Node.Ip),
 		VaultToken:  vault.RootToken,
 		Id:          0,
 	})
-
-	d.nomadServer = nomadServer
-	log.WithContext(ctx).WithField("name", nomadServer.Name).Info("nomad server started.")
 
 	if err != nil {
 		return errors.Join(err, ErrorProvisionNomadServer)
 	}
 
-	d.nomadWorkers = make([]containers.Container, 0)
-	nomadWorker, err := nomad.NewNomadWorker(ctx, d.cli, nomad.NomadConfiguration{
+	nomadServer = nomadServer
+	log.WithContext(ctx).WithField("name", nomadServer.Name).Info("nomad server started.")
+
+	_, err = nomad.NewNomadClient(ctx, runtime, nomad.NomadConfiguration{
 		NetworkName: networkName,
-		ClusterName: d.config.ClusterName,
+		ClusterName: config.ClusterName,
 		ConsulAddr:  fmt.Sprintf("%s:8500", consul.Ip),
-		VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Container.Ip),
+		VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Node.Ip),
 		VaultToken:  vault.RootToken,
-		Id:          len(d.nomadWorkers),
+		Id:          0,
 	})
 
 	if err != nil {
 		return errors.Join(err, ErrorProvisionNomadWorker)
 	}
 
-	d.nomadWorkers = append(d.nomadWorkers, *nomadWorker)
-
 	log.WithContext(ctx).WithField("name", nomadServer.Name).Info("nomad worker started.")
-	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("cluster provisioned.")
+	log.WithContext(ctx).WithField("cluster-name", config.ClusterName).Info("cluster provisioned.")
 
 	return nil
 }
 
-func (d *DockerClsuter) Destroy(ctx context.Context) error {
-	for _, w := range d.nomadWorkers {
+func ClusterDelete(ctx context.Context, d Cluster) error {
+	for _, w := range d.NomadClients {
 		_ = d.cli.StopContainer(ctx, w.Id)
 
 		_ = d.cli.RemoveContainer(ctx, w.Id)
@@ -138,22 +124,65 @@ func (d *DockerClsuter) Destroy(ctx context.Context) error {
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed nomad workers.")
 
-	_ = d.cli.StopContainer(ctx, d.nomadServer.Id)
-	_ = d.cli.RemoveContainer(ctx, d.nomadServer.Id)
+	_ = d.cli.StopContainer(ctx, d.NomadServer.Id)
+	_ = d.cli.RemoveContainer(ctx, d.NomadServer.Id)
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed nomad server.")
 
-	_ = d.cli.StopContainer(ctx, d.vault.Container.Id)
-	_ = d.cli.RemoveContainer(ctx, d.vault.Container.Id)
+	_ = d.cli.StopContainer(ctx, d.Vault.Node.Id)
+	_ = d.cli.RemoveContainer(ctx, d.Vault.Node.Id)
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed vault.")
 
-	_ = d.cli.StopContainer(ctx, d.consul.Id)
-	_ = d.cli.RemoveContainer(ctx, d.consul.Id)
+	_ = d.cli.StopContainer(ctx, d.Consul.Id)
+	_ = d.cli.RemoveContainer(ctx, d.Consul.Id)
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed consul.")
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("cluster destroyed.")
 
 	return nil
+}
+
+func ClusterGet(ctx context.Context, runtime containers.Runtime, config ClusterConfig) (*Cluster, error) {
+
+	labels := map[string]string{
+		constants.ClusterName: config.ClusterName,
+	}
+
+	nodes, err := runtime.GetNodesByLabel(ctx, labels)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(nodes) == 0 {
+		return nil, nil
+	}
+
+	cluster := &Cluster{
+		NomadClients: make([]*containers.Node, 0),
+	}
+
+	for _, v := range nodes {
+
+		typ := v.Labels[constants.NodeType]
+
+		switch typ {
+		case constants.NomadServer:
+			cluster.NomadServer = v
+		case constants.NomadClient:
+			cluster.NomadClients = append(cluster.NomadClients, v)
+		case constants.Consul:
+			cluster.Consul = v
+		case constants.Vault:
+			cluster.Vault = &vault.VaultNode{
+				Node:      v,
+				UnsealKey: v.Labels[constants.VaultUnsealKey],
+				RootToken: v.Labels[constants.VaultRootToken],
+			}
+		}
+	}
+
+	return cluster, nil
 }

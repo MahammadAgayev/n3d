@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"n3d/constants"
 	"n3d/containers"
 	"os"
 	"regexp"
@@ -21,13 +22,13 @@ type VaultConfiguration struct {
 	Id          int
 }
 
-type VaultContainer struct {
-	Container *containers.Container `json:"conatiner"`
-	UnsealKey string                `json:"unsealKey"`
-	RootToken string                `json:"rootToken"`
+type VaultNode struct {
+	Node      *containers.Node
+	UnsealKey string
+	RootToken string
 }
 
-func NewVault(ctx context.Context, cli containers.ContainerClient, config VaultConfiguration) (*VaultContainer, error) {
+func NewVault(ctx context.Context, runtime containers.Runtime, config VaultConfiguration) (*VaultNode, error) {
 	vaultConfig := `
 	    ui            = true
 	    log_level     = "trace"
@@ -52,7 +53,7 @@ func NewVault(ctx context.Context, cli containers.ContainerClient, config VaultC
 	//close file as we don't need from here on
 	tmpFile.Close()
 
-	ctn, err := cli.RunContainer(ctx, containers.ContainerConfig{
+	ctn, err := runtime.RunContainer(ctx, containers.NodeConfig{
 		Name:        fmt.Sprintf("%s-vault-%d", config.ClusterName, config.Id),
 		Image:       vaultImage,
 		NetworkName: config.NetworkName,
@@ -62,22 +63,26 @@ func NewVault(ctx context.Context, cli containers.ContainerClient, config VaultC
 		VolumeBinds: []string{
 			fmt.Sprintf("%s:/vault/config/vault.hcl", tmpFile.Name()),
 		},
+		Labels: map[string]string{
+			constants.NodeType:    constants.Vault,
+			constants.ClusterName: config.ClusterName,
+		},
 	})
 
 	if err != nil {
 		return nil, err
 	}
 
-	unsealKey, rootToken, err := getVaultCreds(ctx, cli, ctn)
+	unsealKey, rootToken, err := getVaultCreds(ctx, runtime, ctn)
 
 	if err != nil {
 		return nil, errors.Join(err, errors.New("unable to fetch vault creds(unseal key, rootToken) from vault"))
 	}
 
-	return &VaultContainer{Container: ctn, UnsealKey: unsealKey, RootToken: rootToken}, nil
+	return &VaultNode{Node: ctn, UnsealKey: unsealKey, RootToken: rootToken}, nil
 }
 
-func getVaultCreds(ctx context.Context, cli containers.ContainerClient, container *containers.Container) (string, string, error) {
+func getVaultCreds(ctx context.Context, cli containers.Runtime, container *containers.Node) (string, string, error) {
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*30)
 	defer cancelFunc()
 

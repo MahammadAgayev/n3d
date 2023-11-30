@@ -7,22 +7,24 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	log "github.com/sirupsen/logrus"
 )
 
-type Container struct {
-	Id   string `json:"id"`
-	Name string `json:"name"`
-	Ip   string `json:"ip"`
+type Node struct {
+	Id     string
+	Name   string
+	Ip     string
+	Labels map[string]string
 }
 
-type ContainerNetwork struct {
-	Id string `json:"id"`
+type NodeNetwork struct {
+	Id string
 }
 
-type ContainerConfig struct {
+type NodeConfig struct {
 	NetworkName string
 	Name        string
 	Image       string
@@ -33,6 +35,7 @@ type ContainerConfig struct {
 	TmpFs       []string
 	Privileged  bool
 	Ports       []string
+	Labels      map[string]string
 }
 
 type Volume struct {
@@ -41,41 +44,43 @@ type Volume struct {
 	IsTmpFs bool
 }
 
-type ContainerClient interface {
-	CreateNetwork(ctx context.Context, name string) (ContainerNetwork, error)
-	RunContainer(ctx context.Context, config ContainerConfig) (*Container, error)
+type Runtime interface {
+	CreateNetwork(ctx context.Context, name string) (NodeNetwork, error)
+	RunContainer(ctx context.Context, config NodeConfig) (*Node, error)
 	Logs(ctx context.Context, containerName string, wait bool) (io.ReadCloser, error)
 	StartContainer(ctx context.Context, id string) error
 	StopContainer(ctx context.Context, id string) error
 	RemoveContainer(ctx context.Context, id string) error
+	GetNodesByLabel(ctx context.Context, labels map[string]string) ([]*Node, error)
+	AddLabels(ctx context.Context, node *Node, labels map[string]string) error
 }
 
-type DockerClient struct {
+type DockerRuntime struct {
 	cli *client.Client
 }
 
-func NewDockerClient() (ContainerClient, error) {
+func NewDockerRuntime() (Runtime, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &DockerClient{
+	return &DockerRuntime{
 		cli: cli,
 	}, nil
 }
 
-func (d *DockerClient) CreateNetwork(ctx context.Context, name string) (ContainerNetwork, error) {
+func (d *DockerRuntime) CreateNetwork(ctx context.Context, name string) (NodeNetwork, error) {
 	networks, err := d.cli.NetworkList(ctx, types.NetworkListOptions{})
 
 	if err != nil {
-		return ContainerNetwork{}, err
+		return NodeNetwork{}, err
 	}
 
 	for _, v := range networks {
 		if v.Name == name {
-			return ContainerNetwork{
+			return NodeNetwork{
 				Id: v.ID,
 			}, nil
 		}
@@ -86,7 +91,7 @@ func (d *DockerClient) CreateNetwork(ctx context.Context, name string) (Containe
 	})
 
 	if err != nil {
-		return ContainerNetwork{}, err
+		return NodeNetwork{}, err
 	}
 
 	log.WithContext(ctx).WithFields(log.Fields{
@@ -94,12 +99,12 @@ func (d *DockerClient) CreateNetwork(ctx context.Context, name string) (Containe
 		"name":     name,
 	}).Info("network created")
 
-	return ContainerNetwork{
+	return NodeNetwork{
 		Id: res.ID,
 	}, nil
 }
 
-func (d *DockerClient) RunContainer(ctx context.Context, inputConfig ContainerConfig) (*Container, error) {
+func (d *DockerRuntime) RunContainer(ctx context.Context, inputConfig NodeConfig) (*Node, error) {
 	// Define container configuration
 	config := &container.Config{
 		Image:        inputConfig.Image,
@@ -109,6 +114,7 @@ func (d *DockerClient) RunContainer(ctx context.Context, inputConfig ContainerCo
 		AttachStdout: true,
 		AttachStderr: true,
 		Tty:          true,
+		Labels:       inputConfig.Labels,
 	}
 
 	// Define host configuration
@@ -158,10 +164,10 @@ func (d *DockerClient) RunContainer(ctx context.Context, inputConfig ContainerCo
 		return nil, err
 	}
 
-	return &Container{Id: resp.ID, Name: inputConfig.Name, Ip: ipAddr}, nil
+	return &Node{Id: resp.ID, Name: inputConfig.Name, Ip: ipAddr}, nil
 }
 
-func (d *DockerClient) Logs(ctx context.Context, containerName string, wait bool) (io.ReadCloser, error) {
+func (d *DockerRuntime) Logs(ctx context.Context, containerName string, wait bool) (io.ReadCloser, error) {
 	reader, err := d.cli.ContainerLogs(ctx, containerName, types.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -171,7 +177,7 @@ func (d *DockerClient) Logs(ctx context.Context, containerName string, wait bool
 	return reader, err
 }
 
-func (d *DockerClient) pullImage(ctx context.Context, imageName string) error {
+func (d *DockerRuntime) pullImage(ctx context.Context, imageName string) error {
 
 	out, err := d.cli.ImagePull(context.Background(), imageName, types.ImagePullOptions{})
 	if err != nil {
@@ -220,7 +226,7 @@ func GetContainerIp(ctx context.Context, cli client.Client, id string, networkNa
 	return ipAddress, nil
 }
 
-func (d *DockerClient) StartContainer(ctx context.Context, id string) error {
+func (d *DockerRuntime) StartContainer(ctx context.Context, id string) error {
 	if err := d.cli.ContainerStart(ctx, id, types.ContainerStartOptions{}); err != nil {
 		return err
 	}
@@ -228,7 +234,7 @@ func (d *DockerClient) StartContainer(ctx context.Context, id string) error {
 	return nil
 }
 
-func (d *DockerClient) StopContainer(ctx context.Context, id string) error {
+func (d *DockerRuntime) StopContainer(ctx context.Context, id string) error {
 	if err := d.cli.ContainerStop(ctx, id, container.StopOptions{}); err != nil {
 		return err
 	}
@@ -236,10 +242,45 @@ func (d *DockerClient) StopContainer(ctx context.Context, id string) error {
 	return nil
 }
 
-func (d *DockerClient) RemoveContainer(ctx context.Context, id string) error {
+func (d *DockerRuntime) RemoveContainer(ctx context.Context, id string) error {
 	if err := d.cli.ContainerRemove(ctx, id, types.ContainerRemoveOptions{}); err != nil {
 		return err
 	}
 
+	return nil
+}
+
+func (d *DockerRuntime) GetNodesByLabel(ctx context.Context, labels map[string]string) ([]*Node, error) {
+	filters := filters.Args{}
+
+	for k, v := range labels {
+		filters.Add(k, v)
+	}
+
+	containers, err := d.cli.ContainerList(ctx, types.ContainerListOptions{
+		Filters: filters,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	nodes := make([]*Node, 0)
+
+	for _, v := range containers {
+
+		node := &Node{
+			Name:   v.Names[0],
+			Id:     v.ID,
+			Labels: v.Labels,
+		}
+
+		nodes = append(nodes, node)
+	}
+
+	return nodes, nil
+}
+
+func (d *DockerRuntime) AddLabels(ctx context.Context, node *Node, labels map[string]string) error {
 	return nil
 }

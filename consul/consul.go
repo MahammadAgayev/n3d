@@ -3,6 +3,7 @@ package consul
 import (
 	"context"
 	"fmt"
+	"n3d/constants"
 	"n3d/containers"
 )
 
@@ -16,8 +17,8 @@ const (
 	imageName = "consul:1.15.4"
 )
 
-func NewConsulServer(ctx context.Context, cli containers.ContainerClient, config ConsulConfiguration) (*containers.Container, error) {
-	ctn, err := cli.RunContainer(ctx, containers.ContainerConfig{
+func NewConsulServer(ctx context.Context, cli containers.Runtime, config ConsulConfiguration) (*containers.Node, error) {
+	ctn, err := cli.RunContainer(ctx, containers.NodeConfig{
 		Image:       imageName,
 		Name:        fmt.Sprintf("%s-consul-server-%d", config.ClusterName, config.Id),
 		NetworkName: config.NetworkName,
@@ -25,6 +26,10 @@ func NewConsulServer(ctx context.Context, cli containers.ContainerClient, config
 			"-client=0.0.0.0", "-hcl=connect { enabled = true }", "-hcl=ports { grpc = 8502 serf_lan = 28301 }"},
 		Ports: []string{"8500/tcp:8500"},
 		TmpFs: []string{"/opt/consul"},
+		Labels: map[string]string{
+			constants.NodeType:    constants.Consul,
+			constants.ClusterName: config.ClusterName,
+		},
 	})
 
 	if err != nil {

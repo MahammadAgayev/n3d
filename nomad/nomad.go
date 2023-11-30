@@ -3,6 +3,7 @@ package nomad
 import (
 	"context"
 	"fmt"
+	"n3d/constants"
 	"n3d/containers"
 
 	log "github.com/sirupsen/logrus"
@@ -10,7 +11,7 @@ import (
 
 const (
 	nomadServerImage = "multani/nomad:1.6.3"
-	nomadClientImage = "mahammad/nomad:1.6.3-a6"
+	nomadClientImage = "mahammad/nomad:1.6.3"
 )
 
 type NomadConfiguration struct {
@@ -22,7 +23,7 @@ type NomadConfiguration struct {
 	Id          int
 }
 
-func NewNomadServer(ctx context.Context, cli containers.ContainerClient, config NomadConfiguration) (*containers.Container, error) {
+func NewNomadServer(ctx context.Context, cli containers.Runtime, config NomadConfiguration) (*containers.Node, error) {
 	nomadConfig := `
 	    server {
 	    	enabled = true
@@ -46,7 +47,7 @@ func NewNomadServer(ctx context.Context, cli containers.ContainerClient, config 
 
 	nomadConfig = fmt.Sprintf(nomadConfig, config.ConsulAddr, config.VaultAddr, config.VaultToken)
 
-	ctn, err := cli.RunContainer(ctx, containers.ContainerConfig{
+	ctn, err := cli.RunContainer(ctx, containers.NodeConfig{
 		Name:        fmt.Sprintf("%s-nomad-server-%d", config.ClusterName, config.Id),
 		Image:       nomadServerImage,
 		NetworkName: config.NetworkName,
@@ -54,6 +55,10 @@ func NewNomadServer(ctx context.Context, cli containers.ContainerClient, config 
 		Env:         []string{fmt.Sprintf("NOMAD_LOCAL_CONFIG=%s", nomadConfig)},
 		Ports:       []string{"4646/tcp:4646"},
 		TmpFs:       []string{"/nomad/data/"},
+		Labels: map[string]string{
+			constants.NodeType:    constants.NomadServer,
+			constants.ClusterName: config.ClusterName,
+		},
 	})
 
 	if err != nil {
@@ -67,7 +72,7 @@ func NewNomadServer(ctx context.Context, cli containers.ContainerClient, config 
 	return ctn, nil
 }
 
-func NewNomadWorker(ctx context.Context, cli containers.ContainerClient, config NomadConfiguration) (*containers.Container, error) {
+func NewNomadClient(ctx context.Context, cli containers.Runtime, config NomadConfiguration) (*containers.Node, error) {
 	nomadConfig := `
 	client {
 		enabled = true
@@ -85,7 +90,7 @@ func NewNomadWorker(ctx context.Context, cli containers.ContainerClient, config 
 	`
 	nomadConfig = fmt.Sprintf(nomadConfig, config.ConsulAddr, config.VaultAddr, config.VaultToken)
 
-	ctn, err := cli.RunContainer(ctx, containers.ContainerConfig{
+	ctn, err := cli.RunContainer(ctx, containers.NodeConfig{
 		Name:        fmt.Sprintf("%s-nomad-client-%d", config.ClusterName, config.Id),
 		Image:       nomadClientImage,
 		NetworkName: config.NetworkName,
@@ -96,6 +101,10 @@ func NewNomadWorker(ctx context.Context, cli containers.ContainerClient, config 
 			"/var/run",
 			"/run",
 			"/nomad/data/",
+		},
+		Labels: map[string]string{
+			constants.NodeType:    constants.NomadClient,
+			constants.ClusterName: config.ClusterName,
 		},
 	})
 
