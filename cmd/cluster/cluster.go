@@ -22,12 +22,13 @@ func NewClusterCommand() *cobra.Command {
 	}
 
 	addCmd := &cobra.Command{
-		Use: "create NAME",
+		Use:  "create NAME",
+		Args: cobra.RangeArgs(0, 1),
 		Run: func(cmd *cobra.Command, args []string) {
 			runtime := runtimes.SelectedRuntime
 
 			cl, err := cluster.ClusterGet(cmd.Context(), runtime, cluster.ClusterConfig{
-				ClusterName: clusterName,
+				ClusterName: args[0],
 			})
 
 			if err != nil {
@@ -45,24 +46,27 @@ func NewClusterCommand() *cobra.Command {
 	}
 
 	destroyCmd := &cobra.Command{
-		Use: "delete NAME",
+		Use:  "delete NAME",
+		Args: cobra.RangeArgs(0, 1),
 		Run: func(cmd *cobra.Command, args []string) {
 			runtime := runtimes.SelectedRuntime
 
 			cl, err := cluster.ClusterGet(cmd.Context(), runtime, cluster.ClusterConfig{
-				ClusterName: clusterName,
+				ClusterName: args[0],
 			})
 
 			if err != nil {
 				log.WithError(err).Error("unable to delete cluster")
+				return
 			}
 
-			cluster.ClusterDelete(cmd.Context(), cl, runtime)
+			err = cluster.ClusterDelete(cmd.Context(), cl, runtime)
+
+			if err != nil {
+				log.WithError(err).Error("unable to delete cluster")
+			}
 		},
 	}
-
-	addCmd.Flags().StringVar(&clusterName, "name", "default", "name for your cluster")
-	destroyCmd.Flags().StringVar(&clusterName, "name", "default", "name for your cluster")
 
 	cmd.AddCommand(addCmd, destroyCmd)
 

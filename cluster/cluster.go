@@ -137,7 +137,6 @@ func ClusterDelete(ctx context.Context, d *Cluster, runtime runtimes.Runtime) er
 }
 
 func ClusterGet(ctx context.Context, runtime runtimes.Runtime, config ClusterConfig) (*Cluster, error) {
-
 	labels := map[string]string{
 		constants.ClusterName: config.ClusterName,
 	}
@@ -154,6 +153,7 @@ func ClusterGet(ctx context.Context, runtime runtimes.Runtime, config ClusterCon
 
 	cluster := &Cluster{
 		NomadClients: make([]*runtimes.Node, 0),
+		config:       config,
 	}
 
 	for _, v := range nodes {
@@ -169,9 +169,10 @@ func ClusterGet(ctx context.Context, runtime runtimes.Runtime, config ClusterCon
 			cluster.Consul = v
 		case constants.Vault:
 			cluster.Vault = &vault.VaultNode{
-				Node:      v,
-				UnsealKey: v.Labels[constants.VaultUnsealKey],
-				RootToken: v.Labels[constants.VaultRootToken],
+				Node: v,
+				//TODO find a way to set these to vault
+				//UnsealKey: v.Labels[constants.VaultUnsealKey],
+				//RootToken: v.Labels[constants.VaultRootToken],
 			}
 		}
 	}

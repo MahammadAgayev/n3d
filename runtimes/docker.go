@@ -2,6 +2,7 @@ package runtimes
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 
@@ -206,10 +207,10 @@ func (d *DockerRuntime) RemoveContainer(ctx context.Context, id string) error {
 }
 
 func (d *DockerRuntime) GetNodesByLabel(ctx context.Context, labels map[string]string) ([]*Node, error) {
-	filters := filters.Args{}
+	filters := filters.NewArgs()
 
 	for k, v := range labels {
-		filters.Add(k, v)
+		filters.Add("label", fmt.Sprintf("%s=%s", k, v))
 	}
 
 	containers, err := d.cli.ContainerList(ctx, types.ContainerListOptions{
