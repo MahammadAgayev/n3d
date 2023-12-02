@@ -1,6 +1,10 @@
 package cluster
 
 import (
+	"n3d/cluster"
+	"n3d/runtimes"
+
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -10,80 +14,50 @@ func NewClusterCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "cluster",
 		Run: func(cmd *cobra.Command, args []string) {
+			if err := cmd.Help(); err != nil {
+				log.Error("Couldn't get help text")
+				log.Fatalln(err)
+			}
 		},
 	}
 
 	addCmd := &cobra.Command{
 		Use: "create NAME",
 		Run: func(cmd *cobra.Command, args []string) {
-			// client, err := containers.NewDockerRuntime()
+			runtime := runtimes.SelectedRuntime
 
-			// if err != nil {
-			// 	log.WithError(err).Error("unable to connect docker")
-			// 	return
-			// }
+			cl, err := cluster.ClusterGet(cmd.Context(), runtime, cluster.ClusterConfig{
+				ClusterName: clusterName,
+			})
 
-			// ctl, err := cluster.NewDockerCluster(client, cluster.ClusterConfig{
-			// 	ClusterName: clusterName,
-			// })
+			if err != nil {
+				log.WithError(err).Error("unable to fetch cluster")
+			}
 
-			// if err != nil {
-			// 	log.WithError(err).Error("unable to create cluster")
-			// 	return
-			// }
+			if cl != nil {
+				log.Info("cluster already exists")
+			}
 
-			// if err = ctl.Provision(cmd.Context()); err != nil {
-			// 	log.WithError(err).Error("unable to provision cluster")
-			// 	return
-			// }
-
-			// state := cluster.CreateState(ctl.(*cluster.DockerClsuter))
-
-			// if err = cluster.WriteState(statePath, state); err != nil {
-			// 	log.WithError(err).Error("unable to save state")
-			// 	return
-			// }
+			cluster.ClusterCreate(cmd.Context(), cluster.ClusterConfig{
+				ClusterName: clusterName,
+			}, runtime)
 		},
 	}
 
 	destroyCmd := &cobra.Command{
 		Use: "delete NAME",
 		Run: func(cmd *cobra.Command, args []string) {
-			// client, err := containers.NewDockerRuntime()
+			runtime := runtimes.SelectedRuntime
 
-			// if err != nil {
-			// 	log.WithError(err).Error("unable to connect docker")
-			// 	return
-			// }
+			cl, err := cluster.ClusterGet(cmd.Context(), runtime, cluster.ClusterConfig{
+				ClusterName: clusterName,
+			})
 
-			// ctl, err := cluster.NewDockerCluster(client, cluster.ClusterConfig{
-			// 	ClusterName: clusterName,
-			// })
+			if err != nil {
+				log.WithError(err).Error("unable to delete cluster")
+			}
 
-			// if err != nil {
-			// 	log.WithError(err).Error("unable to create cluster")
-			// 	return
-			// }
-
-			// state, err := cluster.ReadState(statePath)
-
-			// if err != nil {
-			// 	log.Error("cluster not found")
-			// 	return
-			// }
-
-			// if state == nil {
-			// 	log.Error("cluster not found")
-			// 	return
-			// }
-
-			// if err = cluster.LoadState(ctl.(*cluster.DockerClsuter), state); err != nil {
-			// 	log.WithError(err).Error("unable to load state")
-			// 	return
-			// }
-
-			// ctl.Destroy(cmd.Context())
-
+			cluster.ClusterDelete(cmd.Context(), cl, runtime)
 		},
 	}
 

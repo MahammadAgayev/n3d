@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"n3d/constants"
-	"n3d/containers"
+	"n3d/runtimes"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -23,7 +23,7 @@ type NomadConfiguration struct {
 	Id          int
 }
 
-func NewNomadServer(ctx context.Context, cli containers.Runtime, config NomadConfiguration) (*containers.Node, error) {
+func NewNomadServer(ctx context.Context, cli runtimes.Runtime, config NomadConfiguration) (*runtimes.Node, error) {
 	nomadConfig := `
 	    server {
 	    	enabled = true
@@ -47,7 +47,7 @@ func NewNomadServer(ctx context.Context, cli containers.Runtime, config NomadCon
 
 	nomadConfig = fmt.Sprintf(nomadConfig, config.ConsulAddr, config.VaultAddr, config.VaultToken)
 
-	ctn, err := cli.RunContainer(ctx, containers.NodeConfig{
+	ctn, err := cli.RunContainer(ctx, runtimes.NodeConfig{
 		Name:        fmt.Sprintf("%s-nomad-server-%d", config.ClusterName, config.Id),
 		Image:       nomadServerImage,
 		NetworkName: config.NetworkName,
@@ -72,7 +72,7 @@ func NewNomadServer(ctx context.Context, cli containers.Runtime, config NomadCon
 	return ctn, nil
 }
 
-func NewNomadClient(ctx context.Context, cli containers.Runtime, config NomadConfiguration) (*containers.Node, error) {
+func NewNomadClient(ctx context.Context, cli runtimes.Runtime, config NomadConfiguration) (*runtimes.Node, error) {
 	nomadConfig := `
 	client {
 		enabled = true
@@ -90,7 +90,7 @@ func NewNomadClient(ctx context.Context, cli containers.Runtime, config NomadCon
 	`
 	nomadConfig = fmt.Sprintf(nomadConfig, config.ConsulAddr, config.VaultAddr, config.VaultToken)
 
-	ctn, err := cli.RunContainer(ctx, containers.NodeConfig{
+	ctn, err := cli.RunContainer(ctx, runtimes.NodeConfig{
 		Name:        fmt.Sprintf("%s-nomad-client-%d", config.ClusterName, config.Id),
 		Image:       nomadClientImage,
 		NetworkName: config.NetworkName,

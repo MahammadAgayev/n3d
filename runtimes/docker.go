@@ -1,4 +1,4 @@
-package containers
+package runtimes
 
 import (
 	"context"
@@ -12,48 +12,6 @@ import (
 	"github.com/docker/go-connections/nat"
 	log "github.com/sirupsen/logrus"
 )
-
-type Node struct {
-	Id     string
-	Name   string
-	Ip     string
-	Labels map[string]string
-}
-
-type NodeNetwork struct {
-	Id string
-}
-
-type NodeConfig struct {
-	NetworkName string
-	Name        string
-	Image       string
-	Cmd         []string
-	Env         []string
-	User        string
-	VolumeBinds []string
-	TmpFs       []string
-	Privileged  bool
-	Ports       []string
-	Labels      map[string]string
-}
-
-type Volume struct {
-	Src     string
-	Dest    string
-	IsTmpFs bool
-}
-
-type Runtime interface {
-	CreateNetwork(ctx context.Context, name string) (NodeNetwork, error)
-	RunContainer(ctx context.Context, config NodeConfig) (*Node, error)
-	Logs(ctx context.Context, containerName string, wait bool) (io.ReadCloser, error)
-	StartContainer(ctx context.Context, id string) error
-	StopContainer(ctx context.Context, id string) error
-	RemoveContainer(ctx context.Context, id string) error
-	GetNodesByLabel(ctx context.Context, labels map[string]string) ([]*Node, error)
-	AddLabels(ctx context.Context, node *Node, labels map[string]string) error
-}
 
 type DockerRuntime struct {
 	cli *client.Client
@@ -71,27 +29,26 @@ func NewDockerRuntime() (Runtime, error) {
 	}, nil
 }
 
-func (d *DockerRuntime) CreateNetwork(ctx context.Context, name string) (NodeNetwork, error) {
+func (d *DockerRuntime) CreateNetwork(ctx context.Context, name string, labels map[string]string) error {
 	networks, err := d.cli.NetworkList(ctx, types.NetworkListOptions{})
 
 	if err != nil {
-		return NodeNetwork{}, err
+		return err
 	}
 
 	for _, v := range networks {
 		if v.Name == name {
-			return NodeNetwork{
-				Id: v.ID,
-			}, nil
+			return nil
 		}
 	}
 
 	res, err := d.cli.NetworkCreate(ctx, name, types.NetworkCreate{
 		CheckDuplicate: true,
+		Labels:         labels,
 	})
 
 	if err != nil {
-		return NodeNetwork{}, err
+		return err
 	}
 
 	log.WithContext(ctx).WithFields(log.Fields{
@@ -99,9 +56,7 @@ func (d *DockerRuntime) CreateNetwork(ctx context.Context, name string) (NodeNet
 		"name":     name,
 	}).Info("network created")
 
-	return NodeNetwork{
-		Id: res.ID,
-	}, nil
+	return nil
 }
 
 func (d *DockerRuntime) RunContainer(ctx context.Context, inputConfig NodeConfig) (*Node, error) {
@@ -281,6 +236,44 @@ func (d *DockerRuntime) GetNodesByLabel(ctx context.Context, labels map[string]s
 	return nodes, nil
 }
 
+func (d *DockerRuntime) GetNetworksByLabel(ctx context.Context, labels map[string]string) ([]*Network, error) {
+	filters := filters.Args{}
+
+	for k, v := range labels {
+		filters.Add(k, v)
+	}
+
+	networks, err := d.cli.NetworkList(ctx, types.NetworkListOptions{
+		Filters: filters,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(networks) == 0 {
+		return nil, nil
+	}
+
+	n3dNetworks := make([]*Network, 0)
+
+	for _, n := range networks {
+		net := d.convertNetwork(&n)
+
+		n3dNetworks = append(n3dNetworks, net)
+	}
+
+	return n3dNetworks, nil
+}
+
 func (d *DockerRuntime) AddLabels(ctx context.Context, node *Node, labels map[string]string) error {
 	return nil
+}
+
+func (d *DockerRuntime) convertNetwork(net *types.NetworkResource) *Network {
+	return &Network{
+		Id:     net.ID,
+		Name:   net.Name,
+		Labels: net.Labels,
+	}
 }

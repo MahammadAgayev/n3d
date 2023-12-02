@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"n3d/constants"
-	"n3d/containers"
+	"n3d/runtimes"
 	"os"
 	"regexp"
 	"strings"
@@ -23,12 +23,12 @@ type VaultConfiguration struct {
 }
 
 type VaultNode struct {
-	Node      *containers.Node
+	Node      *runtimes.Node
 	UnsealKey string
 	RootToken string
 }
 
-func NewVault(ctx context.Context, runtime containers.Runtime, config VaultConfiguration) (*VaultNode, error) {
+func NewVault(ctx context.Context, runtime runtimes.Runtime, config VaultConfiguration) (*VaultNode, error) {
 	vaultConfig := `
 	    ui            = true
 	    log_level     = "trace"
@@ -53,7 +53,7 @@ func NewVault(ctx context.Context, runtime containers.Runtime, config VaultConfi
 	//close file as we don't need from here on
 	tmpFile.Close()
 
-	ctn, err := runtime.RunContainer(ctx, containers.NodeConfig{
+	ctn, err := runtime.RunContainer(ctx, runtimes.NodeConfig{
 		Name:        fmt.Sprintf("%s-vault-%d", config.ClusterName, config.Id),
 		Image:       vaultImage,
 		NetworkName: config.NetworkName,
@@ -82,11 +82,11 @@ func NewVault(ctx context.Context, runtime containers.Runtime, config VaultConfi
 	return &VaultNode{Node: ctn, UnsealKey: unsealKey, RootToken: rootToken}, nil
 }
 
-func getVaultCreds(ctx context.Context, cli containers.Runtime, container *containers.Node) (string, string, error) {
+func getVaultCreds(ctx context.Context, runtime runtimes.Runtime, container *runtimes.Node) (string, string, error) {
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*30)
 	defer cancelFunc()
 
-	logs, err := cli.Logs(timeoutCtx, container.Name, true)
+	logs, err := runtime.Logs(timeoutCtx, container.Name, true)
 
 	if err != nil {
 		return "", "", err

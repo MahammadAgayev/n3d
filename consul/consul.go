@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"n3d/constants"
-	"n3d/containers"
+	"n3d/runtimes"
 )
 
 type ConsulConfiguration struct {
@@ -17,8 +17,8 @@ const (
 	imageName = "consul:1.15.4"
 )
 
-func NewConsulServer(ctx context.Context, cli containers.Runtime, config ConsulConfiguration) (*containers.Node, error) {
-	ctn, err := cli.RunContainer(ctx, containers.NodeConfig{
+func NewConsulServer(ctx context.Context, cli runtimes.Runtime, config ConsulConfiguration) (*runtimes.Node, error) {
+	ctn, err := cli.RunContainer(ctx, runtimes.NodeConfig{
 		Image:       imageName,
 		Name:        fmt.Sprintf("%s-consul-server-%d", config.ClusterName, config.Id),
 		NetworkName: config.NetworkName,

@@ -7,7 +7,6 @@ require (
 	github.com/docker/go-connections v0.4.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/spf13/cobra v1.7.0
-	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa
 )
 
 require (

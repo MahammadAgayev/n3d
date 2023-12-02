@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"n3d/constants"
 	"n3d/consul"
-	"n3d/containers"
 	"n3d/nomad"
+	"n3d/runtimes"
 	"n3d/vault"
 
 	log "github.com/sirupsen/logrus"
@@ -26,26 +26,19 @@ type ClusterConfig struct {
 
 type Cluster struct {
 	config ClusterConfig
-	cli    containers.Runtime
 
-	network      *containers.NodeNetwork
-	NomadServer  *containers.Node
-	NomadClients []*containers.Node
-	Consul       *containers.Node
+	NomadServer  *runtimes.Node
+	NomadClients []*runtimes.Node
+	Consul       *runtimes.Node
 	Vault        *vault.VaultNode
 }
 
-// func NewDockerCluster(cli containers.ContainerClient, config ClusterConfig, db db.Db) (Cluster, error) {
-// 	return &DockerClsuter{
-// 		cli:    cli,
-// 		config: config,
-// 	}, nil
-// }
-
-func ClusterCreate(ctx context.Context, config ClusterConfig, runtime containers.Runtime) error {
+func ClusterCreate(ctx context.Context, config ClusterConfig, runtime runtimes.Runtime) error {
 	networkName := config.ClusterName + "-net"
 
-	_, err := runtime.CreateNetwork(ctx, networkName)
+	err := runtime.CreateNetwork(ctx, networkName, map[string]string{
+		constants.ClusterName: config.ClusterName,
+	})
 
 	if err != nil {
 		return err
@@ -93,7 +86,6 @@ func ClusterCreate(ctx context.Context, config ClusterConfig, runtime containers
 		return errors.Join(err, ErrorProvisionNomadServer)
 	}
 
-	nomadServer = nomadServer
 	log.WithContext(ctx).WithField("name", nomadServer.Name).Info("nomad server started.")
 
 	_, err = nomad.NewNomadClient(ctx, runtime, nomad.NomadConfiguration{
@@ -115,27 +107,27 @@ func ClusterCreate(ctx context.Context, config ClusterConfig, runtime containers
 	return nil
 }
 
-func ClusterDelete(ctx context.Context, d Cluster) error {
+func ClusterDelete(ctx context.Context, d *Cluster, runtime runtimes.Runtime) error {
 	for _, w := range d.NomadClients {
-		_ = d.cli.StopContainer(ctx, w.Id)
+		_ = runtime.StopContainer(ctx, w.Id)
 
-		_ = d.cli.RemoveContainer(ctx, w.Id)
+		_ = runtime.RemoveContainer(ctx, w.Id)
 	}
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed nomad workers.")
 
-	_ = d.cli.StopContainer(ctx, d.NomadServer.Id)
-	_ = d.cli.RemoveContainer(ctx, d.NomadServer.Id)
+	_ = runtime.StopContainer(ctx, d.NomadServer.Id)
+	_ = runtime.RemoveContainer(ctx, d.NomadServer.Id)
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed nomad server.")
 
-	_ = d.cli.StopContainer(ctx, d.Vault.Node.Id)
-	_ = d.cli.RemoveContainer(ctx, d.Vault.Node.Id)
+	_ = runtime.StopContainer(ctx, d.Vault.Node.Id)
+	_ = runtime.RemoveContainer(ctx, d.Vault.Node.Id)
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed vault.")
 
-	_ = d.cli.StopContainer(ctx, d.Consul.Id)
-	_ = d.cli.RemoveContainer(ctx, d.Consul.Id)
+	_ = runtime.StopContainer(ctx, d.Consul.Id)
+	_ = runtime.RemoveContainer(ctx, d.Consul.Id)
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed consul.")
 
@@ -144,7 +136,7 @@ func ClusterDelete(ctx context.Context, d Cluster) error {
 	return nil
 }
 
-func ClusterGet(ctx context.Context, runtime containers.Runtime, config ClusterConfig) (*Cluster, error) {
+func ClusterGet(ctx context.Context, runtime runtimes.Runtime, config ClusterConfig) (*Cluster, error) {
 
 	labels := map[string]string{
 		constants.ClusterName: config.ClusterName,
@@ -161,7 +153,7 @@ func ClusterGet(ctx context.Context, runtime containers.Runtime, config ClusterC
 	}
 
 	cluster := &Cluster{
-		NomadClients: make([]*containers.Node, 0),
+		NomadClients: make([]*runtimes.Node, 0),
 	}
 
 	for _, v := range nodes {
