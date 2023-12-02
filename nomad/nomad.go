@@ -11,7 +11,7 @@ import (
 
 const (
 	nomadServerImage = "multani/nomad:1.6.3"
-	nomadClientImage = "mahammad/nomad:1.6.3"
+	nomadClientImage = "mahammadagayev/nomad-client:1.6.3"
 )
 
 type NomadConfiguration struct {
