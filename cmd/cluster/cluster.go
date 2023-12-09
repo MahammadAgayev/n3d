@@ -9,8 +9,6 @@ import (
 )
 
 func NewClusterCommand() *cobra.Command {
-	var clusterName string
-
 	cmd := &cobra.Command{
 		Use: "cluster",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -36,12 +34,15 @@ func NewClusterCommand() *cobra.Command {
 			}
 
 			if cl != nil {
-				log.Info("cluster already exists")
+				log.Info("cluster already exist")
+				return
 			}
 
-			cluster.ClusterCreate(cmd.Context(), cluster.ClusterConfig{
-				ClusterName: clusterName,
+			err = cluster.ClusterCreate(cmd.Context(), cluster.ClusterConfig{
+				ClusterName: args[0],
 			}, runtime)
+
+			log.WithError(err).Error("unable to create cluster")
 		},
 	}
 
@@ -60,6 +61,11 @@ func NewClusterCommand() *cobra.Command {
 				return
 			}
 
+			if cl == nil {
+				log.Info("cluster doesn't exist")
+				return
+			}
+
 			err = cluster.ClusterDelete(cmd.Context(), cl, runtime)
 
 			if err != nil {
@@ -68,7 +74,63 @@ func NewClusterCommand() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(addCmd, destroyCmd)
+	stopCmd := &cobra.Command{
+		Use:  "stop NAME",
+		Args: cobra.RangeArgs(0, 1),
+		Run: func(cmd *cobra.Command, args []string) {
+			runtime := runtimes.SelectedRuntime
+
+			cl, err := cluster.ClusterGet(cmd.Context(), runtime, cluster.ClusterConfig{
+				ClusterName: args[0],
+			})
+
+			if err != nil {
+				log.WithError(err).Error("unable to stop cluster")
+				return
+			}
+
+			if cl == nil {
+				log.Info("cluster doesn't exist")
+				return
+			}
+
+			err = cluster.ClusterStop(cmd.Context(), cl, runtime)
+
+			if err != nil {
+				log.WithError(err).Error("unable to stop cluster")
+			}
+		},
+	}
+
+	startCmd := &cobra.Command{
+		Use:  "start NAME",
+		Args: cobra.RangeArgs(0, 1),
+		Run: func(cmd *cobra.Command, args []string) {
+			runtime := runtimes.SelectedRuntime
+
+			cl, err := cluster.ClusterGet(cmd.Context(), runtime, cluster.ClusterConfig{
+				ClusterName: args[0],
+			})
+
+			if err != nil {
+				log.WithError(err).Error("unable to stop cluster")
+				return
+			}
+
+			if cl == nil {
+				log.Info("cluster doesn't exist")
+				return
+			}
+
+			err = cluster.ClusterStart(cmd.Context(), cl, runtime)
+
+			if err != nil {
+				log.WithError(err).Error("unable to stop cluster")
+			}
+		},
+	}
+
+	cmd.AddCommand(addCmd, destroyCmd, stopCmd, startCmd)
 
 	return cmd
 }

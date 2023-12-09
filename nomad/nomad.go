@@ -32,7 +32,7 @@ func NewNomadServer(ctx context.Context, cli runtimes.Runtime, config NomadConfi
 
 	      data_dir = "/nomad/data/"
 	      
-	      bind_addr = "0.0.0.0"
+		  bind_addr = "0.0.0.0"
 
 		consul { 
 			address = "%s"
@@ -73,11 +73,20 @@ func NewNomadServer(ctx context.Context, cli runtimes.Runtime, config NomadConfi
 }
 
 func NewNomadClient(ctx context.Context, cli runtimes.Runtime, config NomadConfiguration) (*runtimes.Node, error) {
+	nodeName := fmt.Sprintf("%s-nomad-client-%d", config.ClusterName, config.Id)
+
 	nomadConfig := `
 	client {
 		enabled = true
 	  }
 	  bind_addr = "0.0.0.0"
+	  
+	  advertise { 
+		http = "%s"
+		rpc  = "%s" 
+		serf = "%s"
+	  }
+
 	  data_dir = "/nomad/data/"
 	  consul { 
 		address = "%s"
@@ -88,10 +97,10 @@ func NewNomadClient(ctx context.Context, cli runtimes.Runtime, config NomadConfi
 		token   = "%s"
 	  }	  
 	`
-	nomadConfig = fmt.Sprintf(nomadConfig, config.ConsulAddr, config.VaultAddr, config.VaultToken)
+	nomadConfig = fmt.Sprintf(nomadConfig, nodeName, nodeName, nodeName, config.ConsulAddr, config.VaultAddr, config.VaultToken)
 
 	ctn, err := cli.RunContainer(ctx, runtimes.NodeConfig{
-		Name:        fmt.Sprintf("%s-nomad-client-%d", config.ClusterName, config.Id),
+		Name:        nodeName,
 		Image:       nomadClientImage,
 		NetworkName: config.NetworkName,
 		Cmd:         []string{"agent"},

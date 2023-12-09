@@ -1,21 +1,32 @@
 package runtimes
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
 	log "github.com/sirupsen/logrus"
 )
 
 type DockerRuntime struct {
 	cli *client.Client
+}
+
+type BufioReadCloser struct {
+	io.Closer
+	bufio.Reader
 }
 
 func NewDockerRuntime() (Runtime, error) {
@@ -60,6 +71,18 @@ func (d *DockerRuntime) CreateNetwork(ctx context.Context, name string, labels m
 	return nil
 }
 
+func (d *DockerRuntime) DeleteNetwork(ctx context.Context, id string, labels map[string]string) error {
+	err := d.cli.NetworkRemove(ctx, id)
+
+	if err != nil {
+		return err
+	}
+
+	log.WithContext(ctx).Info("network deleted")
+
+	return nil
+}
+
 func (d *DockerRuntime) RunContainer(ctx context.Context, inputConfig NodeConfig) (*Node, error) {
 	// Define container configuration
 	config := &container.Config{
@@ -78,12 +101,32 @@ func (d *DockerRuntime) RunContainer(ctx context.Context, inputConfig NodeConfig
 		NetworkMode:  container.NetworkMode(inputConfig.NetworkName),
 		Privileged:   inputConfig.Privileged,
 		PortBindings: convertToPortBinding(inputConfig.Ports),
-		Binds:        inputConfig.VolumeBinds,
 	}
 
-	hostConfig.Tmpfs = make(map[string]string)
-	for _, fs := range inputConfig.TmpFs {
-		hostConfig.Tmpfs[fs] = ""
+	hostConfig.Mounts = make([]mount.Mount, 0)
+	for _, v := range inputConfig.Volumes {
+
+		typ := mount.TypeVolume
+		if v.IsBind {
+			typ = mount.TypeBind
+		}
+
+		mount := mount.Mount{
+			Source: v.Name,
+			Target: v.Dest,
+			Type:   typ,
+		}
+
+		hostConfig.Mounts = append(hostConfig.Mounts, mount)
+	}
+
+	for _, v := range inputConfig.TmpFs {
+		mount := mount.Mount{
+			Target: v,
+			Type:   mount.TypeTmpfs,
+		}
+
+		hostConfig.Mounts = append(hostConfig.Mounts, mount)
 	}
 
 	_, _, err := d.cli.ImageInspectWithRaw(ctx, inputConfig.Image)
@@ -215,6 +258,7 @@ func (d *DockerRuntime) GetNodesByLabel(ctx context.Context, labels map[string]s
 
 	containers, err := d.cli.ContainerList(ctx, types.ContainerListOptions{
 		Filters: filters,
+		All:     true,
 	})
 
 	if err != nil {
@@ -238,10 +282,10 @@ func (d *DockerRuntime) GetNodesByLabel(ctx context.Context, labels map[string]s
 }
 
 func (d *DockerRuntime) GetNetworksByLabel(ctx context.Context, labels map[string]string) ([]*Network, error) {
-	filters := filters.Args{}
+	filters := filters.NewArgs()
 
 	for k, v := range labels {
-		filters.Add(k, v)
+		filters.Add("label", fmt.Sprintf("%s=%s", k, v))
 	}
 
 	networks, err := d.cli.NetworkList(ctx, types.NetworkListOptions{
@@ -259,7 +303,11 @@ func (d *DockerRuntime) GetNetworksByLabel(ctx context.Context, labels map[strin
 	n3dNetworks := make([]*Network, 0)
 
 	for _, n := range networks {
-		net := d.convertNetwork(&n)
+		net := &Network{
+			Id:     n.ID,
+			Name:   n.Name,
+			Labels: n.Labels,
+		}
 
 		n3dNetworks = append(n3dNetworks, net)
 	}
@@ -267,14 +315,89 @@ func (d *DockerRuntime) GetNetworksByLabel(ctx context.Context, labels map[strin
 	return n3dNetworks, nil
 }
 
-func (d *DockerRuntime) AddLabels(ctx context.Context, node *Node, labels map[string]string) error {
-	return nil
+// func (d *DockerRuntime) CreateVolume(ctx context.Context, name string, labels map[string]string) error {
+// 	volume, err := d.cli.VolumeCreate(ctx, volume.CreateOptions{
+// 		Labels: labels,
+// 	})
+
+// 	if err != nil {
+// 		return err
+// 	}
+
+// }
+
+func (d *DockerRuntime) Exec(ctx context.Context, node *Node, cmd []string) (*string, error) {
+	execConfig := types.ExecConfig{
+		Cmd:          cmd,
+		AttachStderr: false,
+		AttachStdout: true,
+		Tty:          false,
+	}
+
+	execResp, err := d.cli.ContainerExecCreate(ctx, node.Id, execConfig)
+
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := d.cli.ContainerExecAttach(ctx, execResp.ID, types.ExecStartCheck{
+		Tty: execConfig.Tty,
+	})
+
+	if err != nil {
+		return nil, errors.Join(errors.New("unable to read exec response"), err)
+	}
+
+	defer resp.Close()
+
+	err = waitForExecutionUntilTimeout(ctx, func() (bool, error) {
+		execStatus, err := d.cli.ContainerExecInspect(ctx, execResp.ID)
+
+		if err != nil {
+			return false, err
+		}
+
+		if execStatus.Running {
+			return false, nil
+		}
+
+		return true, nil
+	}, time.Second*30)
+
+	if err != nil {
+		return nil, err
+	}
+
+	buff := bytes.NewBuffer([]byte{})
+	stdcopy.StdCopy(buff, nil, resp.Reader)
+	text := buff.String()
+
+	return &text, nil
 }
 
-func (d *DockerRuntime) convertNetwork(net *types.NetworkResource) *Network {
-	return &Network{
-		Id:     net.ID,
-		Name:   net.Name,
-		Labels: net.Labels,
+func waitForExecutionUntilTimeout(ctx context.Context, f func() (bool, error), duration time.Duration) error {
+	context, cancel := context.WithTimeout(ctx, duration)
+
+	defer cancel()
+
+	for {
+
+		deadline, ok := context.Deadline()
+
+		if ok && time.Since(deadline) >= 0 {
+			break
+		}
+
+		complete, err := f()
+
+		if err != nil {
+			return err
+		}
+
+		if complete {
+			break
+		}
 	}
+
+	return nil
 }
