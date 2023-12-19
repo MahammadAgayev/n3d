@@ -23,7 +23,7 @@ type NomadConfiguration struct {
 	Id          int
 }
 
-func NewNomadServer(ctx context.Context, cli runtimes.Runtime, config NomadConfiguration) (*runtimes.Node, error) {
+func NewNomadServer(ctx context.Context, runtime runtimes.Runtime, config NomadConfiguration) (*runtimes.Node, error) {
 	nomadConfig := `
 	    server {
 	    	enabled = true
@@ -47,14 +47,26 @@ func NewNomadServer(ctx context.Context, cli runtimes.Runtime, config NomadConfi
 
 	nomadConfig = fmt.Sprintf(nomadConfig, config.ConsulAddr, config.VaultAddr, config.VaultToken)
 
-	ctn, err := cli.RunContainer(ctx, runtimes.NodeConfig{
+	volName := fmt.Sprintf("%s-nomad-server-vol", config.ClusterName)
+	runtime.CreateVolume(ctx, volName, map[string]string{
+		constants.ClusterName: config.ClusterName,
+		constants.VolumeType:  constants.NomadServer,
+	})
+
+	ctn, err := runtime.RunContainer(ctx, runtimes.NodeConfig{
 		Name:        fmt.Sprintf("%s-nomad-server-%d", config.ClusterName, config.Id),
 		Image:       nomadServerImage,
 		NetworkName: config.NetworkName,
 		Cmd:         []string{"agent"},
 		Env:         []string{fmt.Sprintf("NOMAD_LOCAL_CONFIG=%s", nomadConfig)},
 		Ports:       []string{"4646/tcp:4646"},
-		TmpFs:       []string{"/nomad/data/"},
+		Volumes: []*runtimes.Volume{
+			{
+				Name:   volName,
+				Dest:   "/nomad/data",
+				IsBind: false,
+			},
+		},
 		Labels: map[string]string{
 			constants.NodeType:    constants.NomadServer,
 			constants.ClusterName: config.ClusterName,
@@ -72,7 +84,7 @@ func NewNomadServer(ctx context.Context, cli runtimes.Runtime, config NomadConfi
 	return ctn, nil
 }
 
-func NewNomadClient(ctx context.Context, cli runtimes.Runtime, config NomadConfiguration) (*runtimes.Node, error) {
+func NewNomadClient(ctx context.Context, runtime runtimes.Runtime, config NomadConfiguration) (*runtimes.Node, error) {
 	nodeName := fmt.Sprintf("%s-nomad-client-%d", config.ClusterName, config.Id)
 
 	nomadConfig := `
@@ -99,7 +111,13 @@ func NewNomadClient(ctx context.Context, cli runtimes.Runtime, config NomadConfi
 	`
 	nomadConfig = fmt.Sprintf(nomadConfig, nodeName, nodeName, nodeName, config.ConsulAddr, config.VaultAddr, config.VaultToken)
 
-	ctn, err := cli.RunContainer(ctx, runtimes.NodeConfig{
+	volName := fmt.Sprintf("%s-nomad-client-vol", config.ClusterName)
+	runtime.CreateVolume(ctx, volName, map[string]string{
+		constants.ClusterName: config.ClusterName,
+		constants.VolumeType:  constants.NomadClient,
+	})
+
+	ctn, err := runtime.RunContainer(ctx, runtimes.NodeConfig{
 		Name:        nodeName,
 		Image:       nomadClientImage,
 		NetworkName: config.NetworkName,
@@ -109,7 +127,13 @@ func NewNomadClient(ctx context.Context, cli runtimes.Runtime, config NomadConfi
 		TmpFs: []string{
 			"/var/run",
 			"/run",
-			"/nomad/data/",
+		},
+		Volumes: []*runtimes.Volume{
+			{
+				Name:   volName,
+				Dest:   "/nomad/data",
+				IsBind: false,
+			},
 		},
 		Labels: map[string]string{
 			constants.NodeType:    constants.NomadClient,

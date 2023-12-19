@@ -52,6 +52,7 @@ type Runtime interface {
 	GetNetworksByLabel(ctx context.Context, labels map[string]string) ([]*Network, error)
 
 	Exec(ctx context.Context, node *Node, cmd []string) (*string, error)
+	CreateVolume(ctx context.Context, name string, labels map[string]string) error
 }
 
 var SelectedRuntime Runtime

@@ -1,7 +1,6 @@
 package runtimes
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -14,6 +13,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
@@ -22,11 +22,6 @@ import (
 
 type DockerRuntime struct {
 	cli *client.Client
-}
-
-type BufioReadCloser struct {
-	io.Closer
-	bufio.Reader
 }
 
 func NewDockerRuntime() (Runtime, error) {
@@ -315,16 +310,17 @@ func (d *DockerRuntime) GetNetworksByLabel(ctx context.Context, labels map[strin
 	return n3dNetworks, nil
 }
 
-// func (d *DockerRuntime) CreateVolume(ctx context.Context, name string, labels map[string]string) error {
-// 	volume, err := d.cli.VolumeCreate(ctx, volume.CreateOptions{
-// 		Labels: labels,
-// 	})
+func (d *DockerRuntime) CreateVolume(ctx context.Context, name string, labels map[string]string) error {
+	_, err := d.cli.VolumeCreate(ctx, volume.CreateOptions{
+		Labels: labels,
+	})
 
-// 	if err != nil {
-// 		return err
-// 	}
+	if err != nil {
+		return err
+	}
 
-// }
+	return nil
+}
 
 func (d *DockerRuntime) Exec(ctx context.Context, node *Node, cmd []string) (*string, error) {
 	execConfig := types.ExecConfig{
@@ -377,11 +373,9 @@ func (d *DockerRuntime) Exec(ctx context.Context, node *Node, cmd []string) (*st
 
 func waitForExecutionUntilTimeout(ctx context.Context, f func() (bool, error), duration time.Duration) error {
 	context, cancel := context.WithTimeout(ctx, duration)
-
 	defer cancel()
 
 	for {
-
 		deadline, ok := context.Deadline()
 
 		if ok && time.Since(deadline) >= 0 {
