@@ -26,7 +26,7 @@ type NodeConfig struct {
 	Cmd         []string
 	Env         []string
 	User        string
-	VolumeBinds []string
+	Volumes     []*Volume
 	TmpFs       []string
 	Privileged  bool
 	Ports       []string
@@ -34,20 +34,25 @@ type NodeConfig struct {
 }
 
 type Volume struct {
-	Src     string
-	Dest    string
-	IsTmpFs bool
+	Name   string
+	Dest   string
+	IsBind bool
 }
 
 type Runtime interface {
 	CreateNetwork(ctx context.Context, name string, labels map[string]string) error
 	RunContainer(ctx context.Context, config NodeConfig) (*Node, error)
 	Logs(ctx context.Context, containerName string, wait bool) (io.ReadCloser, error)
+
 	StartContainer(ctx context.Context, id string) error
 	StopContainer(ctx context.Context, id string) error
 	RemoveContainer(ctx context.Context, id string) error
+
 	GetNodesByLabel(ctx context.Context, labels map[string]string) ([]*Node, error)
-	AddLabels(ctx context.Context, node *Node, labels map[string]string) error
+	GetNetworksByLabel(ctx context.Context, labels map[string]string) ([]*Network, error)
+
+	Exec(ctx context.Context, node *Node, cmd []string) (*string, error)
+	CreateVolume(ctx context.Context, name string, labels map[string]string) error
 }
 
 var SelectedRuntime Runtime

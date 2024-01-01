@@ -9,4 +9,5 @@ const (
 	ClusterName    = "ClusterName"
 	VaultUnsealKey = "UnsealKey"
 	VaultRootToken = "VaultRootToken"
+	VolumeType     = "VolumeType"
 )

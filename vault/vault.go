@@ -3,14 +3,16 @@ package vault
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"n3d/constants"
 	"n3d/runtimes"
 	"os"
-	"regexp"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const vaultImage = "vault:1.13.3"
@@ -28,7 +30,13 @@ type VaultNode struct {
 	RootToken string
 }
 
+type vaultInitResponse struct {
+	UnsealKeys []string `json:"unseal_keys_b64"`
+	RootToken  string   `json:"root_token"`
+}
+
 func NewVault(ctx context.Context, runtime runtimes.Runtime, config VaultConfiguration) (*VaultNode, error) {
+	nodeName := fmt.Sprintf("%s-vault-%d", config.ClusterName, config.Id)
 	vaultConfig := `
 	    ui            = true
 	    log_level     = "trace"
@@ -37,15 +45,24 @@ func NewVault(ctx context.Context, runtime runtimes.Runtime, config VaultConfigu
 		cluster_name  = "%s"
 
 		storage "consul" {
-			address = "%s:8500"
+			address = "%s"
 			path = "vault/"
 		}
+		listener "tcp" {
+			address = "0.0.0.0:8200"
+			cluster_address  = "0.0.0.0:8201"
+			tls_disable = 1
+		}
+		
+		max_lease_ttl = "9000h"
+		default_lease_ttl = "10h"
+		ui = true		
 	`
 
 	tmpFile, err := os.CreateTemp("", fmt.Sprintf("n3d-vault-%s-*.conf", config.ClusterName))
 
 	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to create temp file for vault config"))
+		return nil, errors.Join(errors.New("unable to create temp file for vault config"), err)
 	}
 
 	tmpFile.WriteString(fmt.Sprintf(vaultConfig, config.ClusterName, config.ConsulAddr))
@@ -54,14 +71,18 @@ func NewVault(ctx context.Context, runtime runtimes.Runtime, config VaultConfigu
 	tmpFile.Close()
 
 	ctn, err := runtime.RunContainer(ctx, runtimes.NodeConfig{
-		Name:        fmt.Sprintf("%s-vault-%d", config.ClusterName, config.Id),
+		Name:        nodeName,
 		Image:       vaultImage,
 		NetworkName: config.NetworkName,
 		Privileged:  true,
-		Cmd:         []string{"server", "-dev", "-config=/vault/config/vault.hcl"},
+		Cmd:         []string{"server"},
 		Ports:       []string{"8200/tcp:8200"},
-		VolumeBinds: []string{
-			fmt.Sprintf("%s:/vault/config/vault.hcl", tmpFile.Name()),
+		Volumes: []*runtimes.Volume{
+			{
+				Name:   tmpFile.Name(),
+				Dest:   "/vault/config/vault.hcl",
+				IsBind: true,
+			},
 		},
 		Labels: map[string]string{
 			constants.NodeType:    constants.Vault,
@@ -73,53 +94,53 @@ func NewVault(ctx context.Context, runtime runtimes.Runtime, config VaultConfigu
 		return nil, err
 	}
 
-	unsealKey, rootToken, err := getVaultCreds(ctx, runtime, ctn)
+	err = waitForVault(ctx, runtime, ctn)
 
 	if err != nil {
-		return nil, errors.Join(err, errors.New("unable to fetch vault creds(unseal key, rootToken) from vault"))
+		return nil, errors.Join(errors.New("unable to check vault status"), err)
 	}
 
-	return &VaultNode{Node: ctn, UnsealKey: unsealKey, RootToken: rootToken}, nil
+	cmd := []string{"vault", "operator", "init", "-key-shares=1", "-key-threshold=1", "-format=json", "-address=http://127.0.0.1:8200"}
+	//cmd := []string{"ls", "-l"}
+
+	respText, err := runtime.Exec(ctx, ctn, cmd)
+
+	if err != nil {
+		return nil, errors.Join(errors.New("unable to initialize vault"), err)
+	}
+
+	respObj := &vaultInitResponse{}
+	err = json.Unmarshal([]byte(*respText), respObj)
+
+	if err != nil {
+		log.Info(*respText)
+		return nil, errors.Join(fmt.Errorf("unable to parse vault response: %s", *respText), err)
+	}
+
+	return &VaultNode{Node: ctn, UnsealKey: respObj.UnsealKeys[0], RootToken: respObj.RootToken}, nil
 }
 
-func getVaultCreds(ctx context.Context, runtime runtimes.Runtime, container *runtimes.Node) (string, string, error) {
+func waitForVault(ctx context.Context, runtime runtimes.Runtime, container *runtimes.Node) error {
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*30)
 	defer cancelFunc()
 
 	logs, err := runtime.Logs(timeoutCtx, container.Name, true)
 
 	if err != nil {
-		return "", "", err
+		return err
 	}
 
 	defer logs.Close()
 
 	scanner := bufio.NewScanner(logs)
 
-	unsealKeyRegex := regexp.MustCompile(`Unseal Key: (.*)`)
-	rootTokenRegex := regexp.MustCompile(`Root Token: (.*)`)
-
-	var unsealKey string
-	var rootToken string
-
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		unsealKeyMatches := unsealKeyRegex.FindStringSubmatch(line)
-		rootTokenMatches := rootTokenRegex.FindStringSubmatch(line)
-
-		if len(unsealKeyMatches) > 1 {
-			unsealKey = strings.Replace(unsealKeyMatches[1], "\x1b[0m", "", 1)
-		}
-
-		if len(rootTokenMatches) > 1 {
-			rootToken = strings.Replace(rootTokenMatches[1], "\x1b[0m", "", 1)
-		}
-
-		if unsealKey != "" && rootToken != "" {
+		if strings.Contains(line, "core: Initializing version history cache for core") {
 			break
 		}
 	}
 
-	return unsealKey, rootToken, nil
+	return nil
 }

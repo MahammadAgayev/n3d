@@ -18,6 +18,7 @@ var (
 	ErrorProvisionNomadServer = errors.New("unable to provision nomad server")
 	ErrorProvisionNomadWorker = errors.New("unable to provision nomad worker")
 	ErrorProvisionVault       = errors.New("unable to provision vault")
+	ErrorGetNetwork           = errors.New("unable to get network")
 )
 
 type ClusterConfig struct {
@@ -27,6 +28,7 @@ type ClusterConfig struct {
 type Cluster struct {
 	config ClusterConfig
 
+	Network      *runtimes.Network
 	NomadServer  *runtimes.Node
 	NomadClients []*runtimes.Node
 	Consul       *runtimes.Node
@@ -51,20 +53,20 @@ func ClusterCreate(ctx context.Context, config ClusterConfig, runtime runtimes.R
 	})
 
 	if err != nil {
-		return errors.Join(err, ErrorProvisionConsul)
+		return errors.Join(ErrorProvisionConsul, err)
 	}
 
 	log.WithContext(ctx).WithField("Name", consul.Name).Info("consul started.")
 
 	vault, err := vault.NewVault(ctx, runtime, vault.VaultConfiguration{
 		ClusterName: config.ClusterName,
-		ConsulAddr:  consul.Ip,
+		ConsulAddr:  fmt.Sprintf("%s:8500", consul.Name),
 		Id:          0,
 		NetworkName: networkName,
 	})
 
 	if err != nil {
-		return errors.Join(err, ErrorProvisionVault)
+		return errors.Join(ErrorProvisionVault, err)
 	}
 
 	log.WithContext(ctx).WithFields(log.Fields{
@@ -76,14 +78,14 @@ func ClusterCreate(ctx context.Context, config ClusterConfig, runtime runtimes.R
 	nomadServer, err := nomad.NewNomadServer(ctx, runtime, nomad.NomadConfiguration{
 		NetworkName: networkName,
 		ClusterName: config.ClusterName,
-		ConsulAddr:  fmt.Sprintf("%s:8500", consul.Ip),
-		VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Node.Ip),
+		ConsulAddr:  fmt.Sprintf("%s:8500", consul.Name),
+		VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Node.Name),
 		VaultToken:  vault.RootToken,
 		Id:          0,
 	})
 
 	if err != nil {
-		return errors.Join(err, ErrorProvisionNomadServer)
+		return errors.Join(ErrorProvisionNomadServer, err)
 	}
 
 	log.WithContext(ctx).WithField("name", nomadServer.Name).Info("nomad server started.")
@@ -91,14 +93,14 @@ func ClusterCreate(ctx context.Context, config ClusterConfig, runtime runtimes.R
 	_, err = nomad.NewNomadClient(ctx, runtime, nomad.NomadConfiguration{
 		NetworkName: networkName,
 		ClusterName: config.ClusterName,
-		ConsulAddr:  fmt.Sprintf("%s:8500", consul.Ip),
-		VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Node.Ip),
+		ConsulAddr:  fmt.Sprintf("%s:8500", consul.Name),
+		VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Node.Name),
 		VaultToken:  vault.RootToken,
 		Id:          0,
 	})
 
 	if err != nil {
-		return errors.Join(err, ErrorProvisionNomadWorker)
+		return errors.Join(ErrorProvisionNomadWorker, err)
 	}
 
 	log.WithContext(ctx).WithField("name", nomadServer.Name).Info("nomad worker started.")
@@ -116,20 +118,26 @@ func ClusterDelete(ctx context.Context, d *Cluster, runtime runtimes.Runtime) er
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed nomad workers.")
 
-	_ = runtime.StopContainer(ctx, d.NomadServer.Id)
-	_ = runtime.RemoveContainer(ctx, d.NomadServer.Id)
+	if d.NomadServer != nil {
+		_ = runtime.StopContainer(ctx, d.NomadServer.Id)
+		_ = runtime.RemoveContainer(ctx, d.NomadServer.Id)
 
-	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed nomad server.")
+		log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed nomad server.")
+	}
 
-	_ = runtime.StopContainer(ctx, d.Vault.Node.Id)
-	_ = runtime.RemoveContainer(ctx, d.Vault.Node.Id)
+	if d.Vault != nil {
+		_ = runtime.StopContainer(ctx, d.Vault.Node.Id)
+		_ = runtime.RemoveContainer(ctx, d.Vault.Node.Id)
 
-	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed vault.")
+		log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed vault.")
+	}
 
-	_ = runtime.StopContainer(ctx, d.Consul.Id)
-	_ = runtime.RemoveContainer(ctx, d.Consul.Id)
+	if d.Consul != nil {
+		_ = runtime.StopContainer(ctx, d.Consul.Id)
+		_ = runtime.RemoveContainer(ctx, d.Consul.Id)
 
-	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed consul.")
+		log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed consul.")
+	}
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("cluster destroyed.")
 
@@ -177,5 +185,59 @@ func ClusterGet(ctx context.Context, runtime runtimes.Runtime, config ClusterCon
 		}
 	}
 
+	networks, err := runtime.GetNetworksByLabel(ctx, map[string]string{
+		constants.ClusterName: config.ClusterName,
+	})
+
+	if err != nil {
+		return nil, errors.Join(ErrorGetNetwork, err)
+	}
+
+	for _, v := range networks {
+		cluster.Network = v
+	}
+
 	return cluster, nil
+}
+
+func ClusterStop(ctx context.Context, d *Cluster, runtime runtimes.Runtime) error {
+	for _, w := range d.NomadClients {
+		_ = runtime.StopContainer(ctx, w.Id)
+	}
+
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("stopped nomad workers.")
+
+	_ = runtime.StopContainer(ctx, d.NomadServer.Id)
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("stopped nomad server.")
+
+	_ = runtime.StopContainer(ctx, d.Vault.Node.Id)
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("stopped vault.")
+
+	_ = runtime.StopContainer(ctx, d.Consul.Id)
+
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("stopped consul.")
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("stopped cluster.")
+
+	return nil
+}
+
+func ClusterStart(ctx context.Context, d *Cluster, runtime runtimes.Runtime) error {
+
+	_ = runtime.StartContainer(ctx, d.Consul.Id)
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("started consul.")
+
+	_ = runtime.StartContainer(ctx, d.Vault.Node.Id)
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("started vault.")
+
+	_ = runtime.StartContainer(ctx, d.NomadServer.Id)
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("started nomad server.")
+
+	for _, w := range d.NomadClients {
+		_ = runtime.StartContainer(ctx, w.Id)
+	}
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("started nomad workers.")
+
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("started cluster.")
+
+	return nil
 }
