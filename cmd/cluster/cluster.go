@@ -42,7 +42,9 @@ func NewClusterCommand() *cobra.Command {
 				ClusterName: args[0],
 			}, runtime)
 
-			log.WithError(err).Error("unable to create cluster")
+			if err != nil {
+				log.WithError(err).Error("unable to create cluster")
+			}
 		},
 	}
 

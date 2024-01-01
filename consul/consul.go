@@ -34,7 +34,7 @@ func NewConsulServer(ctx context.Context, runtime runtimes.Runtime, config Consu
 		Volumes: []*runtimes.Volume{
 			{
 				Name:   volName,
-				Dest:   "/opt/consul",
+				Dest:   "/consul/data",
 				IsBind: false,
 			},
 		},

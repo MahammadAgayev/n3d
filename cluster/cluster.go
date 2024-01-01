@@ -33,8 +33,6 @@ type Cluster struct {
 	NomadClients []*runtimes.Node
 	Consul       *runtimes.Node
 	Vault        *vault.VaultNode
-
-	Volumes []*runtimes.Volume
 }
 
 func ClusterCreate(ctx context.Context, config ClusterConfig, runtime runtimes.Runtime) error {
