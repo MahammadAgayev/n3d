@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var workerCount int
+
 func NewClusterCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "cluster",
@@ -40,6 +42,7 @@ func NewClusterCommand() *cobra.Command {
 
 			err = cluster.ClusterCreate(cmd.Context(), cluster.ClusterConfig{
 				ClusterName: args[0],
+				WorkerCount: workerCount,
 			}, runtime)
 
 			if err != nil {
@@ -131,6 +134,8 @@ func NewClusterCommand() *cobra.Command {
 			}
 		},
 	}
+
+	addCmd.Flags().IntVarP(&workerCount, "worker_count", "w", 1, "Nomad workers count")
 
 	cmd.AddCommand(addCmd, destroyCmd, stopCmd, startCmd)
 
