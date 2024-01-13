@@ -47,7 +47,7 @@ func NewNomadServer(ctx context.Context, runtime runtimes.Runtime, config NomadC
 
 	nomadConfig = fmt.Sprintf(nomadConfig, config.ConsulAddr, config.VaultAddr, config.VaultToken)
 
-	volName := fmt.Sprintf("%s-nomad-server-vol", config.ClusterName)
+	volName := fmt.Sprintf("%s-nomad-server-vol-%d", config.ClusterName, config.Id)
 	runtime.CreateVolume(ctx, volName, map[string]string{
 		constants.ClusterName: config.ClusterName,
 		constants.VolumeType:  constants.NomadServer,
@@ -111,7 +111,7 @@ func NewNomadClient(ctx context.Context, runtime runtimes.Runtime, config NomadC
 	`
 	nomadConfig = fmt.Sprintf(nomadConfig, nodeName, nodeName, nodeName, config.ConsulAddr, config.VaultAddr, config.VaultToken)
 
-	volName := fmt.Sprintf("%s-nomad-client-vol", config.ClusterName)
+	volName := fmt.Sprintf("%s-nomad-client-vol-%d", config.ClusterName, config.Id)
 	runtime.CreateVolume(ctx, volName, map[string]string{
 		constants.ClusterName: config.ClusterName,
 		constants.VolumeType:  constants.NomadClient,

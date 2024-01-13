@@ -23,6 +23,7 @@ var (
 
 type ClusterConfig struct {
 	ClusterName string
+	WorkerCount int
 }
 
 type Cluster struct {
@@ -90,17 +91,19 @@ func ClusterCreate(ctx context.Context, config ClusterConfig, runtime runtimes.R
 
 	log.WithContext(ctx).WithField("name", nomadServer.Name).Info("nomad server started.")
 
-	_, err = nomad.NewNomadClient(ctx, runtime, nomad.NomadConfiguration{
-		NetworkName: networkName,
-		ClusterName: config.ClusterName,
-		ConsulAddr:  fmt.Sprintf("%s:8500", consul.Name),
-		VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Node.Name),
-		VaultToken:  vault.RootToken,
-		Id:          0,
-	})
+	for i := 0; i < config.WorkerCount; i++ {
+		_, err = nomad.NewNomadClient(ctx, runtime, nomad.NomadConfiguration{
+			NetworkName: networkName,
+			ClusterName: config.ClusterName,
+			ConsulAddr:  fmt.Sprintf("%s:8500", consul.Name),
+			VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Node.Name),
+			VaultToken:  vault.RootToken,
+			Id:          i,
+		})
 
-	if err != nil {
-		return errors.Join(ErrorProvisionNomadWorker, err)
+		if err != nil {
+			return errors.Join(ErrorProvisionNomadWorker, err)
+		}
 	}
 
 	log.WithContext(ctx).WithField("name", nomadServer.Name).Info("nomad worker started.")
