@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
 	log "github.com/sirupsen/logrus"
@@ -100,7 +102,6 @@ func (d *DockerRuntime) RunContainer(ctx context.Context, inputConfig NodeConfig
 
 	hostConfig.Mounts = make([]mount.Mount, 0)
 	for _, v := range inputConfig.Volumes {
-
 		typ := mount.TypeVolume
 		if v.IsBind {
 			typ = mount.TypeBind
@@ -134,13 +135,21 @@ func (d *DockerRuntime) RunContainer(ctx context.Context, inputConfig NodeConfig
 		d.pullImage(ctx, inputConfig.Image)
 	}
 
-	// Create container
 	resp, err := d.cli.ContainerCreate(ctx, config, hostConfig, nil, nil, inputConfig.Name)
 	if err != nil {
 		return nil, err
 	}
 
-	// Start container
+	if len(inputConfig.ExtraCerts) > 0 {
+		for _, v := range inputConfig.ExtraCerts {
+			err = d.copyToContainer(ctx, resp.ID, v, "/etc/ssl/certs/")
+
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	if err := d.cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
 		return nil, err
 	}
@@ -391,6 +400,25 @@ func waitForExecutionUntilTimeout(ctx context.Context, f func() (bool, error), d
 		if complete {
 			break
 		}
+	}
+
+	return nil
+}
+
+func (d DockerRuntime) copyToContainer(ctx context.Context, containerID, sourcePath, destPath string) error {
+	sourcePath, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return err
+	}
+
+	tarball, err := archive.TarWithOptions(sourcePath, &archive.TarOptions{})
+	if err != nil {
+		return err
+	}
+
+	err = d.cli.CopyToContainer(ctx, containerID, destPath, tarball, types.CopyToContainerOptions{CopyUIDGID: false})
+	if err != nil {
+		return err
 	}
 
 	return nil

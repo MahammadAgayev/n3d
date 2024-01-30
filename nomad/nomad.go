@@ -21,6 +21,7 @@ type NomadConfiguration struct {
 	VaultAddr   string
 	VaultToken  string
 	Id          int
+	ExtraCerts  []string
 }
 
 func NewNomadServer(ctx context.Context, runtime runtimes.Runtime, config NomadConfiguration) (*runtimes.Node, error) {
@@ -71,6 +72,7 @@ func NewNomadServer(ctx context.Context, runtime runtimes.Runtime, config NomadC
 			constants.NodeType:    constants.NomadServer,
 			constants.ClusterName: config.ClusterName,
 		},
+		ExtraCerts: config.ExtraCerts,
 	})
 
 	if err != nil {
@@ -139,6 +141,7 @@ func NewNomadClient(ctx context.Context, runtime runtimes.Runtime, config NomadC
 			constants.NodeType:    constants.NomadClient,
 			constants.ClusterName: config.ClusterName,
 		},
+		ExtraCerts: config.ExtraCerts,
 	})
 
 	if err != nil {
