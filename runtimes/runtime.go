@@ -31,6 +31,7 @@ type NodeConfig struct {
 	Privileged  bool
 	Ports       []string
 	Labels      map[string]string
+	ExtraCerts  []string
 }
 
 type Volume struct {

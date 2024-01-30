@@ -9,6 +9,7 @@ import (
 )
 
 var workerCount int
+var extraCerts []string
 
 func NewClusterCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -43,6 +44,7 @@ func NewClusterCommand() *cobra.Command {
 			err = cluster.ClusterCreate(cmd.Context(), cluster.ClusterConfig{
 				ClusterName: args[0],
 				WorkerCount: workerCount,
+				ExtraCerts:  extraCerts,
 			}, runtime)
 
 			if err != nil {
@@ -135,7 +137,8 @@ func NewClusterCommand() *cobra.Command {
 		},
 	}
 
-	addCmd.Flags().IntVarP(&workerCount, "worker_count", "w", 1, "Nomad workers count")
+	addCmd.Flags().IntVarP(&workerCount, "worker-count", "w", 1, "Nomad workers count")
+	addCmd.Flags().StringArrayVar(&extraCerts, "extra-certs", []string{}, "Extra certs to put in container")
 
 	cmd.AddCommand(addCmd, destroyCmd, stopCmd, startCmd)
 

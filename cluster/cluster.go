@@ -24,6 +24,7 @@ var (
 type ClusterConfig struct {
 	ClusterName string
 	WorkerCount int
+	ExtraCerts  []string
 }
 
 type Cluster struct {
@@ -83,6 +84,7 @@ func ClusterCreate(ctx context.Context, config ClusterConfig, runtime runtimes.R
 		VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Node.Name),
 		VaultToken:  vault.RootToken,
 		Id:          0,
+		ExtraCerts:  config.ExtraCerts,
 	})
 
 	if err != nil {
@@ -99,6 +101,7 @@ func ClusterCreate(ctx context.Context, config ClusterConfig, runtime runtimes.R
 			VaultAddr:   fmt.Sprintf("http://%s:8200", vault.Node.Name),
 			VaultToken:  vault.RootToken,
 			Id:          i,
+			ExtraCerts:  config.ExtraCerts,
 		})
 
 		if err != nil {
