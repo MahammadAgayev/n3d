@@ -60,6 +60,7 @@ func NewVault(ctx context.Context, runtime runtimes.Runtime, config VaultConfigu
 	`
 
 	tmpFile, err := os.CreateTemp("", fmt.Sprintf("n3d-vault-%s-*.conf", config.ClusterName))
+	os.Chmod(tmpFile.Name(), 0777)
 
 	if err != nil {
 		return nil, errors.Join(errors.New("unable to create temp file for vault config"), err)
