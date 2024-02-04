@@ -11,6 +11,7 @@ import (
 	"n3d/runtimes"
 	"n3d/vault"
 
+	"github.com/docker/go-connections/nat"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -23,9 +24,10 @@ var (
 )
 
 type ClusterConfig struct {
-	ClusterName string
-	WorkerCount int
-	ExtraCerts  []string
+	ClusterName   string
+	WorkerCount   int
+	ExtraCerts    []string
+	PortsToExpose []string
 }
 
 type Cluster struct {
@@ -96,8 +98,9 @@ func ClusterCreate(ctx context.Context, config ClusterConfig, runtime runtimes.R
 
 	log.WithContext(ctx).WithField("name", nomadServer.Name).Info("nomad server started.")
 
+	workers := []string{}
 	for i := 0; i < config.WorkerCount; i++ {
-		_, err = nomad.NewNomadClient(ctx, runtime, nomad.NomadConfiguration{
+		w, err := nomad.NewNomadClient(ctx, runtime, nomad.NomadConfiguration{
 			NetworkName: networkName,
 			ClusterName: config.ClusterName,
 			ConsulAddr:  fmt.Sprintf("%s:8500", consul.Name),
@@ -110,36 +113,16 @@ func ClusterCreate(ctx context.Context, config ClusterConfig, runtime runtimes.R
 		if err != nil {
 			return errors.Join(ErrorProvisionNomadWorker, err)
 		}
+
+		workers = append(workers, w.Name)
 	}
 
 	log.WithContext(ctx).WithField("name", nomadServer.Name).Info("nomad server started.")
 
 	_, err = loadbalancer.NewLoadBalancer(ctx, runtime, loadbalancer.LoadBalancerCreateOptions{
-		NetworkName: networkName,
-		ClusterName: config.ClusterName,
-		PortMappings: []*loadbalancer.PortMapping{
-			{
-				Proto: "tcp",
-				Port:  "4646",
-				Servers: []string{
-					nomadServer.Name,
-				},
-			},
-			{
-				Proto: "tcp",
-				Port:  "8500",
-				Servers: []string{
-					consul.Name,
-				},
-			},
-			{
-				Proto: "tcp",
-				Port:  "8200",
-				Servers: []string{
-					vault.Node.Name,
-				},
-			},
-		},
+		NetworkName:  networkName,
+		ClusterName:  config.ClusterName,
+		PortMappings: generatePortMappings(config.PortsToExpose, nomadServer.Name, consul.Name, vault.Node.Name, workers),
 	})
 
 	if err != nil {
@@ -324,4 +307,40 @@ func removeClusterVolumes(ctx context.Context, runtime runtimes.Runtime, volumes
 	}
 
 	return nil
+}
+
+func generatePortMappings(portsToExpose []string, nomarServer string, consul string, vault string, nomadWorkers []string) []*loadbalancer.PortMapping {
+	mappings := []*loadbalancer.PortMapping{
+		{
+			Proto: "tcp",
+			Port:  "4646",
+			Servers: []string{
+				nomarServer,
+			},
+		},
+		{
+			Proto: "tcp",
+			Port:  "8500",
+			Servers: []string{
+				consul,
+			},
+		},
+		{
+			Proto: "tcp",
+			Port:  "8200",
+			Servers: []string{
+				vault,
+			},
+		},
+	}
+
+	for _, v := range portsToExpose {
+		mappings = append(mappings, &loadbalancer.PortMapping{
+			Proto:   "tcp",
+			Servers: nomadWorkers,
+			Port:    nat.Port(v),
+		})
+	}
+
+	return mappings
 }

@@ -3,6 +3,7 @@ package loadbalancer
 import (
 	"context"
 	"fmt"
+	"n3d/constants"
 	"n3d/runtimes"
 
 	"github.com/docker/go-connections/nat"
@@ -72,6 +73,11 @@ func NewLoadBalancer(ctx context.Context, runtime runtimes.Runtime, opts LoadBal
 			},
 		},
 		Ports: portsToExpose,
+		Labels: map[string]string{
+			constants.NodeName:    nodeName,
+			constants.ClusterName: opts.ClusterName,
+			constants.NodeType:    constants.LoadBalancer,
+		},
 	}
 
 	node, err := runtime.RunNode(ctx, nodeConf)
