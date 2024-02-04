@@ -1,13 +1,14 @@
 package runtimes
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -80,28 +81,37 @@ func (d *DockerRuntime) DeleteNetwork(ctx context.Context, id string, labels map
 	return nil
 }
 
-func (d *DockerRuntime) RunNode(ctx context.Context, inputConfig NodeConfig) (*Node, error) {
+func (d *DockerRuntime) RunNode(ctx context.Context, node NodeConfig) (*Node, error) {
 	// Define container configuration
 	config := &container.Config{
-		Image:        inputConfig.Image,
-		Cmd:          inputConfig.Cmd,
-		Env:          inputConfig.Env,
-		User:         inputConfig.User,
+		Image:        node.Image,
+		Cmd:          node.Cmd,
+		Env:          node.Env,
+		User:         node.User,
 		AttachStdout: true,
 		AttachStderr: true,
 		Tty:          true,
-		Labels:       inputConfig.Labels,
+		Labels:       node.Labels,
 	}
 
 	// Define host configuration
 	hostConfig := &container.HostConfig{
-		NetworkMode:  container.NetworkMode(inputConfig.NetworkName),
-		Privileged:   inputConfig.Privileged,
-		PortBindings: convertToPortBinding(inputConfig.Ports),
+		NetworkMode:  container.NetworkMode(node.NetworkName),
+		Privileged:   node.Privileged,
+		PortBindings: node.Ports,
 	}
 
+	exposedPorts := nat.PortSet{}
+	for ep := range node.Ports {
+		if _, exists := exposedPorts[ep]; !exists {
+			exposedPorts[ep] = struct{}{}
+		}
+	}
+
+	config.ExposedPorts = exposedPorts
+
 	hostConfig.Mounts = make([]mount.Mount, 0)
-	for _, v := range inputConfig.Volumes {
+	for _, v := range node.Volumes {
 		typ := mount.TypeVolume
 		if v.IsBind {
 			typ = mount.TypeBind
@@ -116,7 +126,7 @@ func (d *DockerRuntime) RunNode(ctx context.Context, inputConfig NodeConfig) (*N
 		hostConfig.Mounts = append(hostConfig.Mounts, mount)
 	}
 
-	for _, v := range inputConfig.TmpFs {
+	for _, v := range node.TmpFs {
 		mount := mount.Mount{
 			Target: v,
 			Type:   mount.TypeTmpfs,
@@ -125,24 +135,34 @@ func (d *DockerRuntime) RunNode(ctx context.Context, inputConfig NodeConfig) (*N
 		hostConfig.Mounts = append(hostConfig.Mounts, mount)
 	}
 
-	_, _, err := d.cli.ImageInspectWithRaw(ctx, inputConfig.Image)
+	_, _, err := d.cli.ImageInspectWithRaw(ctx, node.Image)
 
 	if err != nil {
 		log.WithContext(ctx).WithFields(log.Fields{
 			"image": config.Image,
 		}).Info("image do not exists, pulling....")
 
-		d.pullImage(ctx, inputConfig.Image)
+		d.pullImage(ctx, node.Image)
 	}
 
-	resp, err := d.cli.ContainerCreate(ctx, config, hostConfig, nil, nil, inputConfig.Name)
+	resp, err := d.cli.ContainerCreate(ctx, config, hostConfig, nil, nil, node.Name)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(inputConfig.ExtraCerts) > 0 {
-		for _, v := range inputConfig.ExtraCerts {
-			err = d.copyToContainer(ctx, resp.ID, v, "/etc/ssl/certs/")
+	if len(node.ExtraCerts) > 0 {
+		for _, v := range node.ExtraCerts {
+			err = d.copyToNode(ctx, resp.ID, v, "/etc/ssl/certs/")
+
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if len(node.Files) > 0 {
+		for _, f := range node.Files {
+			err = d.writeToNode(ctx, f.Content, f.Path, f.FileMode, resp.ID)
 
 			if err != nil {
 				return nil, err
@@ -156,10 +176,10 @@ func (d *DockerRuntime) RunNode(ctx context.Context, inputConfig NodeConfig) (*N
 
 	log.WithContext(ctx).WithFields(log.Fields{
 		"containerId": resp.ID,
-		"name":        inputConfig.Name,
+		"name":        node.Name,
 	}).Debug("container started")
 
-	ipAddr, err := GetContainerIp(ctx, *d.cli, resp.ID, inputConfig.NetworkName)
+	ipAddr, err := GetContainerIp(ctx, *d.cli, resp.ID, node.NetworkName)
 
 	if err != nil {
 		log.WithError(err).WithField("id", resp.ID).Error("unable to get ip address for the container")
@@ -167,7 +187,7 @@ func (d *DockerRuntime) RunNode(ctx context.Context, inputConfig NodeConfig) (*N
 		return nil, err
 	}
 
-	return &Node{Id: resp.ID, Name: inputConfig.Name, Ip: ipAddr}, nil
+	return &Node{Id: resp.ID, Name: node.Name, Ip: ipAddr}, nil
 }
 
 func (d *DockerRuntime) Logs(ctx context.Context, containerName string, wait bool) (io.ReadCloser, error) {
@@ -198,24 +218,24 @@ func (d *DockerRuntime) pullImage(ctx context.Context, imageName string) error {
 	return nil
 }
 
-func convertToPortBinding(ports []string) map[nat.Port][]nat.PortBinding {
-	if len(ports) == 0 {
-		return nil
-	}
+// func convertToPortBinding(ports []string) map[nat.Port][]nat.PortBinding {
+// 	if len(ports) == 0 {
+// 		return nil
+// 	}
 
-	m := make(map[nat.Port][]nat.PortBinding, 0)
+// 	m := make(map[nat.Port][]nat.PortBinding, 0)
 
-	for _, v := range ports {
-		splitted := strings.Split(v, ":")
+// 	for _, v := range ports {
+// 		splitted := strings.Split(v, ":")
 
-		containerPort := splitted[0]
-		hostPort := splitted[1]
+// 		containerPort := splitted[0]
+// 		hostPort := splitted[1]
 
-		m[nat.Port(containerPort)] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: hostPort}}
-	}
+// 		m[nat.Port(containerPort)] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: hostPort}}
+// 	}
 
-	return m
-}
+// 	return m
+// }
 
 func GetContainerIp(ctx context.Context, cli client.Client, id string, networkName string) (string, error) {
 	containerInfo, err := cli.ContainerInspect(context.Background(), id)
@@ -445,7 +465,7 @@ func waitForExecutionUntilTimeout(ctx context.Context, f func() (bool, error), d
 	return nil
 }
 
-func (d DockerRuntime) copyToContainer(ctx context.Context, containerID, sourcePath, destPath string) error {
+func (d DockerRuntime) copyToNode(ctx context.Context, containerID, sourcePath, destPath string) error {
 	sourcePath, err := filepath.Abs(sourcePath)
 	if err != nil {
 		return err
@@ -459,6 +479,36 @@ func (d DockerRuntime) copyToContainer(ctx context.Context, containerID, sourceP
 	err = d.cli.CopyToContainer(ctx, containerID, destPath, tarball, types.CopyToContainerOptions{CopyUIDGID: false})
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (d *DockerRuntime) writeToNode(ctx context.Context, content []byte, dest string, mode os.FileMode, containerId string) error {
+	buf := new(bytes.Buffer)
+	tarWriter := tar.NewWriter(buf)
+	defer tarWriter.Close()
+	tarHeader := &tar.Header{
+		Name: dest,
+		Mode: int64(mode),
+		Size: int64(len(content)),
+	}
+
+	if err := tarWriter.WriteHeader(tarHeader); err != nil {
+		return fmt.Errorf("failed to write tar header: %+v", err)
+	}
+
+	if _, err := tarWriter.Write(content); err != nil {
+		return fmt.Errorf("failed to write tar content: %+v", err)
+	}
+
+	if err := tarWriter.Close(); err != nil {
+		log.Debugf("failed to close tar writer: %+v", err)
+	}
+
+	tarBytes := bytes.NewReader(buf.Bytes())
+	if err := d.cli.CopyToContainer(ctx, containerId, "/", tarBytes, types.CopyToContainerOptions{AllowOverwriteDirWithFile: true}); err != nil {
+		return fmt.Errorf("failed to copy content to container '%s': %+v", containerId, err)
 	}
 
 	return nil

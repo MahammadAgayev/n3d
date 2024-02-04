@@ -33,7 +33,6 @@ func NewConsulServer(ctx context.Context, runtime runtimes.Runtime, config Consu
 		NetworkName: config.NetworkName,
 		Cmd: []string{"agent", "-server", "-ui", "-bootstrap-expect=1",
 			"-client=0.0.0.0", "-hcl=connect { enabled = true }", "-hcl=ports { grpc = 8502 serf_lan = 28301 }"},
-		Ports: []string{"8500/tcp:8500"},
 		Volumes: []*runtimes.Volume{
 			{
 				Name:   volName,
