@@ -114,33 +114,36 @@ func ClusterCreate(ctx context.Context, config ClusterConfig, runtime runtimes.R
 
 func ClusterDelete(ctx context.Context, d *Cluster, runtime runtimes.Runtime) error {
 	for _, w := range d.NomadClients {
-		_ = runtime.StopContainer(ctx, w.Id)
+		_ = runtime.StopNode(ctx, w)
 
-		_ = runtime.RemoveContainer(ctx, w.Id)
+		_ = runtime.RemoveNode(ctx, w)
 	}
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed nomad workers.")
 
 	if d.NomadServer != nil {
-		_ = runtime.StopContainer(ctx, d.NomadServer.Id)
-		_ = runtime.RemoveContainer(ctx, d.NomadServer.Id)
+		_ = runtime.StopNode(ctx, d.NomadServer)
+		_ = runtime.RemoveNode(ctx, d.NomadServer)
 
 		log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed nomad server.")
 	}
 
 	if d.Vault != nil {
-		_ = runtime.StopContainer(ctx, d.Vault.Node.Id)
-		_ = runtime.RemoveContainer(ctx, d.Vault.Node.Id)
+		_ = runtime.StopNode(ctx, d.Vault.Node)
+		_ = runtime.RemoveNode(ctx, d.Vault.Node)
 
 		log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed vault.")
 	}
 
 	if d.Consul != nil {
-		_ = runtime.StopContainer(ctx, d.Consul.Id)
-		_ = runtime.RemoveContainer(ctx, d.Consul.Id)
+		_ = runtime.StopNode(ctx, d.Consul)
+		_ = runtime.RemoveNode(ctx, d.Consul)
 
 		log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed consul.")
 	}
+
+	_ = removeClusterVolumes(ctx, runtime, d.config.ClusterName)
+	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("removed volumes.")
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("cluster destroyed.")
 
@@ -205,18 +208,18 @@ func ClusterGet(ctx context.Context, runtime runtimes.Runtime, config ClusterCon
 
 func ClusterStop(ctx context.Context, d *Cluster, runtime runtimes.Runtime) error {
 	for _, w := range d.NomadClients {
-		_ = runtime.StopContainer(ctx, w.Id)
+		_ = runtime.StopNode(ctx, w)
 	}
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("stopped nomad workers.")
 
-	_ = runtime.StopContainer(ctx, d.NomadServer.Id)
+	_ = runtime.StopNode(ctx, d.NomadServer)
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("stopped nomad server.")
 
-	_ = runtime.StopContainer(ctx, d.Vault.Node.Id)
+	_ = runtime.StopNode(ctx, d.Vault.Node)
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("stopped vault.")
 
-	_ = runtime.StopContainer(ctx, d.Consul.Id)
+	_ = runtime.StopNode(ctx, d.Consul)
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("stopped consul.")
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("stopped cluster.")
@@ -226,21 +229,48 @@ func ClusterStop(ctx context.Context, d *Cluster, runtime runtimes.Runtime) erro
 
 func ClusterStart(ctx context.Context, d *Cluster, runtime runtimes.Runtime) error {
 
-	_ = runtime.StartContainer(ctx, d.Consul.Id)
+	_ = runtime.StartNode(ctx, d.Consul)
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("started consul.")
 
-	_ = runtime.StartContainer(ctx, d.Vault.Node.Id)
+	_ = runtime.StartNode(ctx, d.Vault.Node)
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("started vault.")
 
-	_ = runtime.StartContainer(ctx, d.NomadServer.Id)
+	_ = runtime.StartNode(ctx, d.NomadServer)
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("started nomad server.")
 
 	for _, w := range d.NomadClients {
-		_ = runtime.StartContainer(ctx, w.Id)
+		_ = runtime.StartNode(ctx, w)
 	}
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("started nomad workers.")
 
 	log.WithContext(ctx).WithField("cluster-name", d.config.ClusterName).Info("started cluster.")
+
+	return nil
+}
+
+func removeClusterVolumes(ctx context.Context, runtime runtimes.Runtime, clusterName string) error {
+	vols, err := runtime.GetVolumesByLabel(ctx, map[string]string{
+		constants.ClusterName: clusterName,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if len(vols) == 0 {
+		log.WithFields(log.Fields{
+			constants.ClusterName: clusterName,
+		}).Warn("no volumes found to delete")
+		return nil
+	}
+
+	for _, v := range vols {
+		err = runtime.RemoveVolume(ctx, v.Name)
+
+		if err != nil {
+			return err
+		}
+	}
 
 	return nil
 }

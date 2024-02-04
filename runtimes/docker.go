@@ -78,7 +78,7 @@ func (d *DockerRuntime) DeleteNetwork(ctx context.Context, id string, labels map
 	return nil
 }
 
-func (d *DockerRuntime) RunContainer(ctx context.Context, inputConfig NodeConfig) (*Node, error) {
+func (d *DockerRuntime) RunNode(ctx context.Context, inputConfig NodeConfig) (*Node, error) {
 	// Define container configuration
 	config := &container.Config{
 		Image:        inputConfig.Image,
@@ -220,24 +220,24 @@ func GetContainerIp(ctx context.Context, cli client.Client, id string, networkNa
 	return ipAddress, nil
 }
 
-func (d *DockerRuntime) StartContainer(ctx context.Context, id string) error {
-	if err := d.cli.ContainerStart(ctx, id, types.ContainerStartOptions{}); err != nil {
+func (d *DockerRuntime) StartNode(ctx context.Context, node *Node) error {
+	if err := d.cli.ContainerStart(ctx, node.Id, types.ContainerStartOptions{}); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (d *DockerRuntime) StopContainer(ctx context.Context, id string) error {
-	if err := d.cli.ContainerStop(ctx, id, container.StopOptions{}); err != nil {
+func (d *DockerRuntime) StopNode(ctx context.Context, node *Node) error {
+	if err := d.cli.ContainerStop(ctx, node.Id, container.StopOptions{}); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (d *DockerRuntime) RemoveContainer(ctx context.Context, id string) error {
-	if err := d.cli.ContainerRemove(ctx, id, types.ContainerRemoveOptions{}); err != nil {
+func (d *DockerRuntime) RemoveNode(ctx context.Context, node *Node) error {
+	if err := d.cli.ContainerRemove(ctx, node.Id, types.ContainerRemoveOptions{}); err != nil {
 		return err
 	}
 
@@ -313,6 +313,7 @@ func (d *DockerRuntime) GetNetworksByLabel(ctx context.Context, labels map[strin
 func (d *DockerRuntime) CreateVolume(ctx context.Context, name string, labels map[string]string) error {
 	_, err := d.cli.VolumeCreate(ctx, volume.CreateOptions{
 		Labels: labels,
+		Name:   name,
 	})
 
 	if err != nil {
@@ -320,6 +321,39 @@ func (d *DockerRuntime) CreateVolume(ctx context.Context, name string, labels ma
 	}
 
 	return nil
+}
+
+func (d *DockerRuntime) GetVolumesByLabel(ctx context.Context, labels map[string]string) ([]*Volume, error) {
+	filters := filters.NewArgs()
+
+	for k, v := range labels {
+		filters.Add("label", fmt.Sprintf("%s=%s", k, v))
+	}
+
+	volumeResp, err := d.cli.VolumeList(ctx, volume.ListOptions{
+		Filters: filters,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(volumeResp.Volumes) == 0 {
+		return nil, nil
+	}
+
+	n3dVolumes := make([]*Volume, 0)
+
+	for _, n := range volumeResp.Volumes {
+		vol := &Volume{
+			Name: n.Name,
+			Dest: n.Mountpoint,
+		}
+
+		n3dVolumes = append(n3dVolumes, vol)
+	}
+
+	return n3dVolumes, nil
 }
 
 func (d *DockerRuntime) Exec(ctx context.Context, node *Node, cmd []string) (*string, error) {
@@ -369,6 +403,12 @@ func (d *DockerRuntime) Exec(ctx context.Context, node *Node, cmd []string) (*st
 	text := buff.String()
 
 	return &text, nil
+}
+
+func (d *DockerRuntime) RemoveVolume(ctx context.Context, name string) error {
+	err := d.cli.VolumeRemove(ctx, name, false)
+
+	return err
 }
 
 func waitForExecutionUntilTimeout(ctx context.Context, f func() (bool, error), duration time.Duration) error {

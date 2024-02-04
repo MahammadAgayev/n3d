@@ -18,15 +18,18 @@ const (
 )
 
 func NewConsulServer(ctx context.Context, runtime runtimes.Runtime, config ConsulConfiguration) (*runtimes.Node, error) {
+	nodeName := fmt.Sprintf("%s-consul-server-%d", config.ClusterName, config.Id)
 	volName := fmt.Sprintf("%s-consul-vol", config.ClusterName)
+
 	runtime.CreateVolume(ctx, volName, map[string]string{
 		constants.ClusterName: config.ClusterName,
 		constants.VolumeType:  constants.Consul,
+		constants.NodeName:    nodeName,
 	})
 
-	ctn, err := runtime.RunContainer(ctx, runtimes.NodeConfig{
+	ctn, err := runtime.RunNode(ctx, runtimes.NodeConfig{
 		Image:       imageName,
-		Name:        fmt.Sprintf("%s-consul-server-%d", config.ClusterName, config.Id),
+		Name:        nodeName,
 		NetworkName: config.NetworkName,
 		Cmd: []string{"agent", "-server", "-ui", "-bootstrap-expect=1",
 			"-client=0.0.0.0", "-hcl=connect { enabled = true }", "-hcl=ports { grpc = 8502 serf_lan = 28301 }"},

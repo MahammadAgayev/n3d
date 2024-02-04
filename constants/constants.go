@@ -10,4 +10,5 @@ const (
 	VaultUnsealKey = "UnsealKey"
 	VaultRootToken = "VaultRootToken"
 	VolumeType     = "VolumeType"
+	NodeName       = "NodeName"
 )

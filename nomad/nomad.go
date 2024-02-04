@@ -24,6 +24,7 @@ type NomadConfiguration struct {
 }
 
 func NewNomadServer(ctx context.Context, runtime runtimes.Runtime, config NomadConfiguration) (*runtimes.Node, error) {
+	nodeName := fmt.Sprintf("%s-nomad-server-%d", config.ClusterName, config.Id)
 	nomadConfig := `
 	    server {
 	    	enabled = true
@@ -51,10 +52,11 @@ func NewNomadServer(ctx context.Context, runtime runtimes.Runtime, config NomadC
 	runtime.CreateVolume(ctx, volName, map[string]string{
 		constants.ClusterName: config.ClusterName,
 		constants.VolumeType:  constants.NomadServer,
+		constants.NodeName:    nodeName,
 	})
 
-	ctn, err := runtime.RunContainer(ctx, runtimes.NodeConfig{
-		Name:        fmt.Sprintf("%s-nomad-server-%d", config.ClusterName, config.Id),
+	ctn, err := runtime.RunNode(ctx, runtimes.NodeConfig{
+		Name:        nodeName,
 		Image:       nomadServerImage,
 		NetworkName: config.NetworkName,
 		Cmd:         []string{"agent"},
@@ -115,9 +117,10 @@ func NewNomadClient(ctx context.Context, runtime runtimes.Runtime, config NomadC
 	runtime.CreateVolume(ctx, volName, map[string]string{
 		constants.ClusterName: config.ClusterName,
 		constants.VolumeType:  constants.NomadClient,
+		constants.NodeName:    constants.NodeName,
 	})
 
-	ctn, err := runtime.RunContainer(ctx, runtimes.NodeConfig{
+	ctn, err := runtime.RunNode(ctx, runtimes.NodeConfig{
 		Name:        nodeName,
 		Image:       nomadClientImage,
 		NetworkName: config.NetworkName,
