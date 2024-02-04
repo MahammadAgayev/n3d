@@ -3,6 +3,7 @@ package constants
 const (
 	NomadServer    = "NomadServer"
 	NomadClient    = "NomadClient"
+	LoadBalancer   = "LoadBalancer"
 	Vault          = "Vault"
 	Consul         = "Consul"
 	NodeType       = "NodeType"
