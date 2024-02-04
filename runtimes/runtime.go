@@ -42,18 +42,20 @@ type Volume struct {
 
 type Runtime interface {
 	CreateNetwork(ctx context.Context, name string, labels map[string]string) error
-	RunContainer(ctx context.Context, config NodeConfig) (*Node, error)
-	Logs(ctx context.Context, containerName string, wait bool) (io.ReadCloser, error)
+	RunNode(ctx context.Context, config NodeConfig) (*Node, error)
+	Logs(ctx context.Context, nodeName string, wait bool) (io.ReadCloser, error)
 
-	StartContainer(ctx context.Context, id string) error
-	StopContainer(ctx context.Context, id string) error
-	RemoveContainer(ctx context.Context, id string) error
+	StartNode(ctx context.Context, node *Node) error
+	StopNode(ctx context.Context, node *Node) error
+	RemoveNode(ctx context.Context, node *Node) error
 
 	GetNodesByLabel(ctx context.Context, labels map[string]string) ([]*Node, error)
 	GetNetworksByLabel(ctx context.Context, labels map[string]string) ([]*Network, error)
+	GetVolumesByLabel(ctx context.Context, labels map[string]string) ([]*Volume, error)
 
 	Exec(ctx context.Context, node *Node, cmd []string) (*string, error)
 	CreateVolume(ctx context.Context, name string, labels map[string]string) error
+	RemoveVolume(ctx context.Context, name string) error
 }
 
 var SelectedRuntime Runtime

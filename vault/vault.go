@@ -71,7 +71,7 @@ func NewVault(ctx context.Context, runtime runtimes.Runtime, config VaultConfigu
 	//close file as we don't need from here on
 	tmpFile.Close()
 
-	ctn, err := runtime.RunContainer(ctx, runtimes.NodeConfig{
+	ctn, err := runtime.RunNode(ctx, runtimes.NodeConfig{
 		Name:        nodeName,
 		Image:       vaultImage,
 		NetworkName: config.NetworkName,
