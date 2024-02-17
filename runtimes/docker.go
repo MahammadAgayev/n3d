@@ -218,25 +218,6 @@ func (d *DockerRuntime) pullImage(ctx context.Context, imageName string) error {
 	return nil
 }
 
-// func convertToPortBinding(ports []string) map[nat.Port][]nat.PortBinding {
-// 	if len(ports) == 0 {
-// 		return nil
-// 	}
-
-// 	m := make(map[nat.Port][]nat.PortBinding, 0)
-
-// 	for _, v := range ports {
-// 		splitted := strings.Split(v, ":")
-
-// 		containerPort := splitted[0]
-// 		hostPort := splitted[1]
-
-// 		m[nat.Port(containerPort)] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: hostPort}}
-// 	}
-
-// 	return m
-// }
-
 func GetContainerIp(ctx context.Context, cli client.Client, id string, networkName string) (string, error) {
 	containerInfo, err := cli.ContainerInspect(context.Background(), id)
 	if err != nil {
