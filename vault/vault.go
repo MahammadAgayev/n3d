@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"n3d/constants"
 	"n3d/runtimes"
-	"os"
 	"strings"
 	"time"
 
@@ -59,17 +58,7 @@ func NewVault(ctx context.Context, runtime runtimes.Runtime, config VaultConfigu
 		ui = true		
 	`
 
-	tmpFile, err := os.CreateTemp("", fmt.Sprintf("n3d-vault-%s-*.conf", config.ClusterName))
-	os.Chmod(tmpFile.Name(), 0777)
-
-	if err != nil {
-		return nil, errors.Join(errors.New("unable to create temp file for vault config"), err)
-	}
-
-	tmpFile.WriteString(fmt.Sprintf(vaultConfig, config.ClusterName, config.ConsulAddr))
-
-	//close file as we don't need from here on
-	tmpFile.Close()
+	vaultConfig = fmt.Sprintf(vaultConfig, config.ClusterName, config.ConsulAddr)
 
 	ctn, err := runtime.RunNode(ctx, runtimes.NodeConfig{
 		Name:        nodeName,
@@ -77,12 +66,11 @@ func NewVault(ctx context.Context, runtime runtimes.Runtime, config VaultConfigu
 		NetworkName: config.NetworkName,
 		Privileged:  true,
 		Cmd:         []string{"server"},
-		Ports:       []string{"8200/tcp:8200"},
-		Volumes: []*runtimes.Volume{
+		Files: []*runtimes.FileInNode{
 			{
-				Name:   tmpFile.Name(),
-				Dest:   "/vault/config/vault.hcl",
-				IsBind: true,
+				Content:  []byte(vaultConfig),
+				Path:     "/vault/config/vault.hcl",
+				FileMode: 0644,
 			},
 		},
 		Labels: map[string]string{

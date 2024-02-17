@@ -62,7 +62,6 @@ func NewNomadServer(ctx context.Context, runtime runtimes.Runtime, config NomadC
 		NetworkName: config.NetworkName,
 		Cmd:         []string{"agent"},
 		Env:         []string{fmt.Sprintf("NOMAD_LOCAL_CONFIG=%s", nomadConfig)},
-		Ports:       []string{"4646/tcp:4646"},
 		Volumes: []*runtimes.Volume{
 			{
 				Name:   volName,
@@ -129,7 +128,6 @@ func NewNomadClient(ctx context.Context, runtime runtimes.Runtime, config NomadC
 		Cmd:         []string{"agent"},
 		Env:         []string{fmt.Sprintf("NOMAD_LOCAL_CONFIG=%s", nomadConfig)},
 		Privileged:  true,
-		Ports:       []string{"443/tcp:443"},
 		TmpFs: []string{
 			"/var/run",
 			"/run",

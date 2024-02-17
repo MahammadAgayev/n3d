@@ -4,6 +4,9 @@ import (
 	"context"
 	"io"
 	"log"
+	"os"
+
+	"github.com/docker/go-connections/nat"
 )
 
 type Node struct {
@@ -29,15 +32,22 @@ type NodeConfig struct {
 	Volumes     []*Volume
 	TmpFs       []string
 	Privileged  bool
-	Ports       []string
+	Ports       map[nat.Port][]nat.PortBinding
 	Labels      map[string]string
 	ExtraCerts  []string
+	Files       []*FileInNode
 }
 
 type Volume struct {
 	Name   string
 	Dest   string
 	IsBind bool
+}
+
+type FileInNode struct {
+	Content  []byte
+	Path     string
+	FileMode os.FileMode
 }
 
 type Runtime interface {
